@@ -1,0 +1,8 @@
+Kelas Daun Cabai,Jml Uji,MNet Precision,MNet Recall,MNet F1,ResNet Precision,ResNet Recall,ResNet F1,Selisih F1
+Bacterial Spot,31,89.29%,80.65%,84.75%,55.00%,35.48%,43.14%,+41.61%
+Cercospora Leaf Spot,36,91.67%,91.67%,91.67%,78.95%,41.67%,54.55%,+37.12%
+Curl Virus,85,97.70%,100.00%,98.84%,85.71%,91.76%,88.64%,+10.20%
+Healthy Leaf,92,85.98%,100.00%,92.46%,68.54%,66.30%,67.40%,+25.06%
+Nutrition Deficiency,89,97.50%,87.64%,92.31%,59.68%,83.15%,69.48%,+22.83%
+White spot,39,100.00%,87.18%,93.15%,55.17%,41.03%,47.06%,+46.09%
+RATA-RATA (MACRO AVG),372,93.69%,91.19%,92.20%,67.18%,59.90%,61.71%,+30.49%

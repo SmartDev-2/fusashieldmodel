@@ -1,0 +1,7 @@
+,Pred: Bacterial Spot,Pred: Cercospora Leaf Spot,Pred: Curl Virus,Pred: Healthy Leaf,Pred: Nutrition Deficiency,Pred: White spot
+Aktual: Bacterial Spot,25,3,0,1,2,0
+Aktual: Cercospora Leaf Spot,1,33,2,0,0,0
+Aktual: Curl Virus,0,0,85,0,0,0
+Aktual: Healthy Leaf,0,0,0,92,0,0
+Aktual: Nutrition Deficiency,2,0,0,9,78,0
+Aktual: White spot,0,0,0,5,0,34
