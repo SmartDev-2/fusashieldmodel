@@ -800,7 +800,12 @@ def jalankan_pipeline_cloud(default_hst=41):
 
 
 if __name__ == "__main__":
+    import sys
     print("[INFO] Program FusaShield Cloud Controller Berjalan (Mode 100% Data Riil).")
+    if "--once" in sys.argv:
+        print("[INFO] Mode single execution (--once) aktif untuk cloud automation.")
+        jalankan_pipeline_cloud(default_hst=41)
+        sys.exit(0)
     while True:
         try:
             jalankan_pipeline_cloud(default_hst=41)

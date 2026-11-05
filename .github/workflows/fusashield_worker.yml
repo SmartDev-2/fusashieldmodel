@@ -1,0 +1,39 @@
+name: FusaShield AI & IoT Cloud Controller
+
+on:
+  schedule:
+    # Otomatis dieksekusi setiap 10 menit
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Memungkinkan tombol 'Run workflow' manual kapan saja
+
+jobs:
+  fusashield-inference:
+    name: Run FusaShield Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute FusaShield AI & IoT Sync
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          NODE_PATH: "/monitoring/cabai_01"
+        run: |
+          python fusashield_main.py --once
