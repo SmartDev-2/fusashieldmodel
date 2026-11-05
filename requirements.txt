@@ -1,6 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
-keras>=3.15.0
+keras
 numpy
 pillow
 requests
