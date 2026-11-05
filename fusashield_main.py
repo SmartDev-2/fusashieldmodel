@@ -16,14 +16,31 @@ from supabase import create_client, Client
 # ==========================================================
 # 1. KONFIGURASI KREDENSIAL SUPABASE & FIREBASE
 # ==========================================================
-SUPABASE_URL = "https://vojhhpjvlhxvitllddez.supabase.co"
-SUPABASE_KEY = "sb_publishable_91iAt7RZAZdu4SqFXTSW7w_-sRKJfSr"
-BUCKET_NAME = "fusashield-image"
-SUPABASE_FOLDER = "cabai_01"  # Folder di dalam bucket
+def _muat_env(path=".env"):
+    lokasi = os.path.join(os.path.dirname(os.path.abspath(__file__)), path) if "__file__" in globals() else path
+    if os.path.exists(lokasi):
+        try:
+            with open(lokasi, "r", encoding="utf-8") as f:
+                for l in f:
+                    b = l.strip()
+                    if b and not b.startswith("#") and "=" in b:
+                        k, v = b.split("=", 1)
+                        k, v = k.strip(), v.strip().strip('"').strip("'")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
 
-FIREBASE_DB_URL = "https://fusashield-default-rtdb.asia-southeast1.firebasedatabase.app"
-FIREBASE_API_KEY = "AIzaSyC4y5vLD6s930sd1-mQ09KMd9zAsq0zu3c"
-NODE_PATH = "/monitoring/cabai_01"
+_muat_env()
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+BUCKET_NAME = os.environ.get("BUCKET_NAME", "fusashield-image")
+SUPABASE_FOLDER = os.environ.get("SUPABASE_FOLDER", "cabai_01")
+
+FIREBASE_DB_URL = os.environ.get("FIREBASE_DB_URL", "")
+FIREBASE_API_KEY = os.environ.get("FIREBASE_API_KEY", "")
+NODE_PATH = os.environ.get("NODE_PATH", "/monitoring/cabai_01")
 
 MODEL_PATH = r"C:\project\Fusashield\fusashield_mobilenetv2.keras"
 LABELS_PATH = r"C:\project\Fusashield\class_names.json"
@@ -32,10 +49,13 @@ EXT_GAMBAR = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 
 # Cooldown penguncian pompa mengikuti TINGKAT KEPARAHAN dosis yang direkomendasikan fuzzy.
 # Dihitung sejak pompa terakhir menyala (sesuai jeda inkubasi Trichoderma).
+# Cooldown Protection: Penguncian pompa otomatis selama 12 jam (43.200 detik)
+# setelah penyemprotan untuk mencegah kejenuhan air tanah (over-watering).
+COOLDOWN_STANDAR_DETIK = 12 * 3600  # 12 jam (43.200 detik)
 COOLDOWN_PER_TINGKAT = {
-    "KRITIS":    12 * 3600,   # dosis >= 70 ml
-    "WASPADA":   18 * 3600,   # 35 ml <= dosis < 70 ml
-    "PREVENTIF": 24 * 3600,   # 10 ml <= dosis < 35 ml
+    "KRITIS":    COOLDOWN_STANDAR_DETIK,   # dosis >= 70 ml (12 jam / 43.200 detik)
+    "WASPADA":   COOLDOWN_STANDAR_DETIK,   # 35 ml <= dosis < 70 ml (12 jam / 43.200 detik)
+    "PREVENTIF": COOLDOWN_STANDAR_DETIK,   # 10 ml <= dosis < 35 ml (12 jam / 43.200 detik)
 }
 # Pengali untuk uji di meja: 1.0 = normal, 0.002 = Kritis jadi +-86 detik.
 SKALA_COOLDOWN = 1.0
@@ -55,12 +75,19 @@ NILAI_DEMO_SENSOR = {"temperature": 28.0, "soil_moisture": 60.0, "humidity": 65.
 
 # ---------------- LLM (Groq) : HANYA narasi rekomendasi agronomi ----------------
 # Kunci dibaca dari environment variable, JANGAN ditulis di kode:
-#   PowerShell (sesi ini) : $env:GROQ_API_KEY="gsk_..."
-#   Permanen              : setx GROQ_API_KEY "gsk_..."   (lalu buka terminal baru)
+#   Kunci API Groq dibaca otomatis dari file .env lokal
+#   Kunci API Groq dibaca otomatis dari file .env lokal
 # LLM dipanggil SETELAH fuzzy & keputusan pompa selesai. Keluarannya tidak pernah
 # memengaruhi dosis/pompa; hanya teks untuk dashboard.
+# Pengaturan Mode Uji Meja / Demo Sidang:
+# Jika True: Sensor tanah yang belum ditancapkan ke tanah (soil_valid: false dari ESP32)
+# tidak akan memblokir pompa. Nilai soil_moisture tetap dibaca dari Firebase (atau nilai netral jika null),
+# dan pompa tetap diizinkan menyala jika dosis fuzzy menghendaki.
+ABAIKAN_SOIL_INVALID_UNTUK_DEMO = True
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL_FALLBACK = os.environ.get("GROQ_MODEL_FALLBACK", "llama-3.1-8b-instant")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 LLM_TIMEOUT_DETIK = 12
 LLM_INTERVAL_MIN_DETIK = 600   # jarak minimal antar panggilan jika hanya kondisi yang berubah
@@ -424,10 +451,15 @@ def evaluasi_iot(data_iot):
     alasan = []
     sensor, hilang = baca_sensor(data_iot)
     if data_iot.get("soil_valid") is False:
-        sensor["soil_moisture"] = None
-        if "soil_moisture" not in hilang:
-            hilang.append("soil_moisture")
-        alasan.append("sensor tanah ditandai TIDAK VALID oleh ESP32 (cek kabel/kalibrasi)")
+        if ABAIKAN_SOIL_INVALID_UNTUK_DEMO:
+            alasan.append("sensor tanah soil_valid=False dari ESP32 (DIABAIKAN karena mode demo aktif)")
+            if sensor.get("soil_moisture") is None:
+                sensor["soil_moisture"] = NILAI_DEMO_SENSOR["soil_moisture"]
+        else:
+            sensor["soil_moisture"] = None
+            if "soil_moisture" not in hilang:
+                hilang.append("soil_moisture")
+            alasan.append("sensor tanah ditandai TIDAK VALID oleh ESP32 (cek kabel/kalibrasi)")
 
     # Apakah ESP32 benar-benar hidup? (uptime_ms harus terus berubah)
     uptime = data_iot.get("uptime_ms")
@@ -463,8 +495,13 @@ def evaluasi_iot(data_iot):
         alasan.append("menunggu bukti ESP32 aktif (uptime_ms belum terlihat berubah)")
     else:
         status = "AKTIF"
+
+    siap_pompa = (status == "AKTIF")
+    if ABAIKAN_SOIL_INVALID_UNTUK_DEMO and hidup == "AKTIF" and (not hilang or hilang == ["soil_moisture"]):
+        siap_pompa = True
+
     return {"status": status, "alasan": alasan, "nilai": nilai, "sumber": sumber,
-            "siap_pompa": status == "AKTIF"}
+            "siap_pompa": siap_pompa}
 
 
 SARAN_PER_KELAS = {
@@ -490,14 +527,18 @@ def rekomendasi_template(k):
 
 
 PROMPT_SISTEM = (
-    "Anda pakar patologi tanaman cabai yang memberi SARAN AGRONOMI TAMBAHAN dalam Bahasa Indonesia. "
+    "Anda pakar patologi tanaman cabai yang memberi SARAN AGRONOMI TAMBAHAN dalam Bahasa Indonesia ilmiah. "
     "Sistem FusaShield memakai CNN MobileNetV2 (mengenali gejala daun, bukan diagnosis Fusarium pasti) "
-    "dan fuzzy logic Sugeno untuk dosis Trichoderma cair. ATURAN KETAT: "
-    "(1) JANGAN menghitung, mengubah, atau mengusulkan dosis/durasi pompa; dosis dari fuzzy sudah final, "
+    "dan fuzzy logic Mamdani (singleton defuzzification) untuk kendali aktuator dosis Trichoderma harzianum cair. "
+    "ATURAN KETAT: "
+    "(1) JANGAN menghitung, mengubah, atau mengusulkan angka dosis/durasi pompa; dosis dari fuzzy sudah final, "
     "dan Anda tidak boleh menyebut angka ml/cc selain yang diberikan. "
-    "(2) Nyatakan temuan sebagai INDIKASI, jangan memastikan Fusarium. "
+    "(2) Nyatakan temuan sebagai INDIKASI, bukan konfirmasi mutlak patogen Fusarium di laboratorium. "
     "(3) Jika sumber sensor bernilai DEMO, katakan itu nilai simulasi dan jangan menyimpulkan mikroklimat darinya. "
-    "(4) Jawab dalam 3 bagian singkat, maksimal 120 kata total: Kondisi, Tindakan petani, Pencegahan."
+    "(4) Format Output: Maksimal 3 kalimat padat dalam Bahasa Indonesia ilmiah tanpa bullet points yang memuat: "
+    "(1) korelasi mikroklimat & gejala visual CNN terhadap risiko patogen Fusarium oxysporum, "
+    "(2) evaluasi kesesuaian dosis agen hayati Trichoderma, dan "
+    "(3) satu tindakan perawatan fisik atau budidaya spesifik di lahan."
 )
 
 
@@ -511,31 +552,52 @@ def _dosis_dalam_teks_valid(teks, dosis_ml):
 
 
 def panggil_llm(k):
-    """Return (teks, sumber). Tidak pernah melempar error; jatuh ke template bila gagal."""
+    """Return (teks, sumber). Menjalankan model utama (llama-3.3-70b-versatile),
+    auto-fallback ke model kedua (llama-3.1-8b-instant), dan
+    terakhir rule-based fallback bila offline/kedua API gagal."""
     if not GROQ_API_KEY:
         return rekomendasi_template(k), "template (GROQ_API_KEY belum diset)"
-    payload = {
-        "model": GROQ_MODEL,
-        "temperature": 0.3,
-        "max_tokens": 400,
-        "messages": [
-            {"role": "system", "content": PROMPT_SISTEM},
-            {"role": "user", "content": json.dumps(k, ensure_ascii=False)},
-        ],
-    }
-    try:
-        r = requests.post(GROQ_URL, json=payload, timeout=LLM_TIMEOUT_DETIK,
-                          headers={"Authorization": f"Bearer {GROQ_API_KEY}",
-                                   "Content-Type": "application/json"})
-        r.raise_for_status()
-        teks = (r.json()["choices"][0]["message"]["content"] or "").strip()
-    except Exception as e:
-        return rekomendasi_template(k), f"template (LLM gagal: {type(e).__name__})"
-    if not teks:
-        return rekomendasi_template(k), "template (LLM mengembalikan teks kosong)"
-    if not _dosis_dalam_teks_valid(teks, k["dosis_fuzzy_ml"]):
-        return rekomendasi_template(k), "template (teks LLM menyebut dosis berbeda, ditolak)"
-    return teks[:1200], f"groq:{GROQ_MODEL}"
+
+    model_kandidat = [GROQ_MODEL]
+    if GROQ_MODEL_FALLBACK and GROQ_MODEL_FALLBACK != GROQ_MODEL:
+        model_kandidat.append(GROQ_MODEL_FALLBACK)
+
+    riwayat_error = []
+    for model_name in model_kandidat:
+        payload = {
+            "model": model_name,
+            "temperature": 0.3,
+            "max_tokens": 400,
+            "messages": [
+                {"role": "system", "content": PROMPT_SISTEM},
+                {"role": "user", "content": json.dumps(k, ensure_ascii=False)},
+            ],
+        }
+        try:
+            r = requests.post(
+                GROQ_URL,
+                json=payload,
+                timeout=LLM_TIMEOUT_DETIK,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+            )
+            r.raise_for_status()
+            teks = (r.json()["choices"][0]["message"]["content"] or "").strip()
+            if not teks:
+                riwayat_error.append(f"{model_name}: teks kosong")
+                continue
+            if not _dosis_dalam_teks_valid(teks, k["dosis_fuzzy_ml"]):
+                riwayat_error.append(f"{model_name}: dosis berbeda")
+                continue
+            return teks[:1200], f"groq:{model_name}"
+        except Exception as e:
+            riwayat_error.append(f"{model_name}: {type(e).__name__}")
+
+    # Fallback terakhir ke template jika semua model Groq gagal/offline
+    alasan = ", ".join(riwayat_error) if riwayat_error else "tidak diketahui"
+    return rekomendasi_template(k), f"template (fallback offline: {alasan})"
 
 
 def rekomendasi_untuk(k, foto_baru):
