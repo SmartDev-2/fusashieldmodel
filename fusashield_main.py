@@ -112,6 +112,22 @@ try:
 except Exception:
     pass
 
+try:
+    from keras.src.initializers import random_initializers
+    for _name in dir(random_initializers):
+        _obj = getattr(random_initializers, _name)
+        if isinstance(_obj, type) and hasattr(_obj, "__init__"):
+            _orig = _obj.__init__
+            def _patch_rand(orig_fn):
+                def _wrapped(self, *args, **kwargs):
+                    kwargs.pop("input_axes", None)
+                    kwargs.pop("output_axes", None)
+                    return orig_fn(self, *args, **kwargs)
+                return _wrapped
+            _obj.__init__ = _patch_rand(_orig)
+except Exception:
+    pass
+
 print("[INFO] Memuat model CNN MobileNetV2 (.keras)...")
 model = keras.models.load_model(MODEL_PATH, compile=False)
 with open(LABELS_PATH, "r") as f:
