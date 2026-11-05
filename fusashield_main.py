@@ -128,6 +128,18 @@ try:
 except Exception:
     pass
 
+try:
+    import keras.layers
+    _orig_bn = keras.layers.BatchNormalization.__init__
+    def _patched_bn(self, *args, **kwargs):
+        kwargs.pop("renorm", None)
+        kwargs.pop("renorm_clipping", None)
+        kwargs.pop("renorm_momentum", None)
+        return _orig_bn(self, *args, **kwargs)
+    keras.layers.BatchNormalization.__init__ = _patched_bn
+except Exception:
+    pass
+
 print("[INFO] Memuat model CNN MobileNetV2 (.keras)...")
 model = keras.models.load_model(MODEL_PATH, compile=False)
 with open(LABELS_PATH, "r") as f:
