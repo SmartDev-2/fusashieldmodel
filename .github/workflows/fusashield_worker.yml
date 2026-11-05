@@ -37,3 +37,4 @@ jobs:
           NODE_PATH: "/monitoring/cabai_01"
         run: |
           python fusashield_main.py --once
+

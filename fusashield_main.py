@@ -95,8 +95,25 @@ KUNCI_SENSOR = {
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Patch kompatibilitas Keras initializers (input_axes/output_axes)
+try:
+    import keras.initializers
+    for _name in dir(keras.initializers):
+        _obj = getattr(keras.initializers, _name)
+        if isinstance(_obj, type) and issubclass(_obj, keras.initializers.Initializer):
+            _orig = _obj.__init__
+            def _patch(orig_fn):
+                def _wrapped(self, *args, **kwargs):
+                    kwargs.pop("input_axes", None)
+                    kwargs.pop("output_axes", None)
+                    return orig_fn(self, *args, **kwargs)
+                return _wrapped
+            _obj.__init__ = _patch(_orig)
+except Exception:
+    pass
+
 print("[INFO] Memuat model CNN MobileNetV2 (.keras)...")
-model = keras.models.load_model(MODEL_PATH)
+model = keras.models.load_model(MODEL_PATH, compile=False)
 with open(LABELS_PATH, "r") as f:
     class_names = json.load(f)
 print(f"[INFO] Model MobileNetV2 siap digunakan! ({len(class_names)} kelas: {class_names})")
