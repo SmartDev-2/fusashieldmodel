@@ -1,3 +1,15 @@
+"""
+=============================================================================
+FUSASHIELD CLOUD CONTROLLER (100% DATA RIIL: IOT & CITRA LENGKAP)
+Sistem Mitigasi Presisi Layu Fusarium Berbasis IoT dan Agen Hayati Otomatis
+=============================================================================
+Sistem HANYA bekerja jika KEDUA syarat terpenuhi secara lengkap:
+  1. Data Telemetri IoT dari ESP32 LENGKAP & AKTIF (Suhu, Tanah, RH Udara).
+  2. Citra Daun Cabai TERSEDIA & VALID di Supabase Storage.
+TANPA DATA DEMO / NILAI SIMULASI.
+=============================================================================
+"""
+
 import os
 os.environ["KERAS_BACKEND"] = "torch"
 
@@ -14,9 +26,10 @@ import keras
 from supabase import create_client, Client
 
 # ==========================================================
-# 1. KONFIGURASI KREDENSIAL SUPABASE & FIREBASE
+# 1. KONFIGURASI KREDENSIAL (DARI .ENV)
 # ==========================================================
 def _muat_env(path=".env"):
+    """Muat variabel environment dari file .env secara otomatis."""
     lokasi = os.path.join(os.path.dirname(os.path.abspath(__file__)), path) if "__file__" in globals() else path
     if os.path.exists(lokasi):
         try:
@@ -28,8 +41,8 @@ def _muat_env(path=".env"):
                         k, v = k.strip(), v.strip().strip('"').strip("'")
                         if k and k not in os.environ:
                             os.environ[k] = v
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] Gagal membaca {path}: {e}")
 
 _muat_env()
 
@@ -47,8 +60,6 @@ LABELS_PATH = r"C:\project\Fusashield\class_names.json"
 
 EXT_GAMBAR = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 
-# Cooldown penguncian pompa mengikuti TINGKAT KEPARAHAN dosis yang direkomendasikan fuzzy.
-# Dihitung sejak pompa terakhir menyala (sesuai jeda inkubasi Trichoderma).
 # Cooldown Protection: Penguncian pompa otomatis selama 12 jam (43.200 detik)
 # setelah penyemprotan untuk mencegah kejenuhan air tanah (over-watering).
 COOLDOWN_STANDAR_DETIK = 12 * 3600  # 12 jam (43.200 detik)
@@ -57,34 +68,16 @@ COOLDOWN_PER_TINGKAT = {
     "WASPADA":   COOLDOWN_STANDAR_DETIK,   # 35 ml <= dosis < 70 ml (12 jam / 43.200 detik)
     "PREVENTIF": COOLDOWN_STANDAR_DETIK,   # 10 ml <= dosis < 35 ml (12 jam / 43.200 detik)
 }
-# Pengali untuk uji di meja: 1.0 = normal, 0.002 = Kritis jadi +-86 detik.
 SKALA_COOLDOWN = 1.0
 
-# Foto lebih tua dari ini TIDAK dipakai untuk dosis kuratif. Fuzzy lalu hanya
-# memakai sensor tanah/udara (skor gejala dianggap 0), sehingga dosis paling besar preventif.
+# Foto lebih tua dari 24 jam dianggap tidak representatif untuk kondisi daun saat ini
 FOTO_MAKS_UMUR_JAM = 24.0
 
-# ESP32 mengirim data tiap 10 detik. Jika uptime_ms tidak berubah selama ini,
-# data di Firebase dianggap LAMA (ESP32 mati / belum menyala).
+# ESP32 mengirim data tiap 10 detik. Jika uptime_ms tidak berubah > 45 detik,
+# ESP32 dianggap offline / mati.
 IOT_TIMEOUT_DETIK = 45
 
-# Nilai netral untuk MODE PERHITUNGAN TANPA IoT. Dipakai hanya untuk sensor yang
-# belum masuk, supaya fuzzy tetap berjalan. Dengan nilai ini dosis hanya ditentukan
-# oleh skor CNN (maksimum Waspada). Pompa TIDAK PERNAH menyala pada mode ini.
-NILAI_DEMO_SENSOR = {"temperature": 28.0, "soil_moisture": 60.0, "humidity": 65.0}
-
-# ---------------- LLM (Groq) : HANYA narasi rekomendasi agronomi ----------------
-# Kunci dibaca dari environment variable, JANGAN ditulis di kode:
-#   Kunci API Groq dibaca otomatis dari file .env lokal
-#   Kunci API Groq dibaca otomatis dari file .env lokal
-# LLM dipanggil SETELAH fuzzy & keputusan pompa selesai. Keluarannya tidak pernah
-# memengaruhi dosis/pompa; hanya teks untuk dashboard.
-# Pengaturan Mode Uji Meja / Demo Sidang:
-# Jika True: Sensor tanah yang belum ditancapkan ke tanah (soil_valid: false dari ESP32)
-# tidak akan memblokir pompa. Nilai soil_moisture tetap dibaca dari Firebase (atau nilai netral jika null),
-# dan pompa tetap diizinkan menyala jika dosis fuzzy menghendaki.
-ABAIKAN_SOIL_INVALID_UNTUK_DEMO = True
-
+# ---------------- LLM (Groq) : Narasi rekomendasi agronomi XAI ----------------
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_MODEL_FALLBACK = os.environ.get("GROQ_MODEL_FALLBACK", "llama-3.1-8b-instant")
@@ -96,7 +89,6 @@ LLM_INTERVAL_MIN_DETIK = 600   # jarak minimal antar panggilan jika hanya kondis
 KUNCI_SENSOR = {
     "temperature":   ["temperature", "suhu", "temp", "soil_temperature"],
     "soil_moisture": ["soil_moisture", "kelembapan", "moisture", "soil", "humidity_soil"],
-    # pH tanah tidak dipakai (tidak ada sensor pH); diganti kelembapan udara DHT22
     "humidity":      ["humidity", "kelembapan_udara", "air_humidity", "rh"],
 }
 
@@ -106,23 +98,22 @@ print("[INFO] Memuat model CNN MobileNetV2 (.keras)...")
 model = keras.models.load_model(MODEL_PATH)
 with open(LABELS_PATH, "r") as f:
     class_names = json.load(f)
-print("[INFO] Model MobileNetV2 siap digunakan!")
+print(f"[INFO] Model MobileNetV2 siap digunakan! ({len(class_names)} kelas: {class_names})")
 
-# Menyimpan ID foto terakhir yang sudah diproses, agar foto yang sama
-# tidak dianalisis dan pompa tidak menyala berulang setiap 10 detik.
+# Cache internal pipeline
 _foto_terakhir_diproses = None
-_cache_cnn = None          # hasil CNN foto terakhir: dict(label, conf, skor, path)
-_waktu_pompa_terakhir = 0  # epoch detik saat pompa terakhir menyala
-_ack_terakhir = None       # id ack terakhir dari ESP32 yang sudah dicetak
-_iot_uptime_terakhir = None   # uptime_ms ESP32 terakhir yang terlihat
-_iot_waktu_berubah = 0.0      # kapan uptime_ms terakhir berubah (epoch)
-_iot_pernah_berubah = False   # sudah pernah melihat uptime berubah (bukti ESP32 hidup)
+_cache_cnn = None              # hasil CNN foto terakhir: dict(label, conf, skor, path)
+_waktu_pompa_terakhir = 0      # epoch detik saat pompa terakhir menyala
+_ack_terakhir = None           # id ack terakhir dari ESP32
+_iot_uptime_terakhir = None    # uptime_ms ESP32 terakhir yang terlihat
+_iot_waktu_berubah = 0.0       # kapan uptime_ms terakhir berubah (epoch)
+_iot_pernah_berubah = False    # bukti ESP32 aktif
 _llm_cache = {"key": None, "teks": "", "sumber": "", "ts": 0.0}
-_fuzzy_detail = {}            # rincian derajat keanggotaan & kekuatan aturan (untuk ditampilkan)
+_fuzzy_detail = {}
 
 
 # ==========================================================
-# 2. AMBIL GAMBAR TERBARU DARI SUPABASE (TANPA NAMA FILE TETAP)
+# 2. SELEKSI & AKUISISI CITRA DARI SUPABASE
 # ==========================================================
 def tingkat_dosis(dosis_ml):
     if dosis_ml >= 70.0:
@@ -135,8 +126,7 @@ def tingkat_dosis(dosis_ml):
 
 
 def waktu_foto_epoch(info):
-    """Waktu unggah foto (epoch detik): dari created_at, atau dari angka
-    timestamp di awal nama file. Return None jika tidak bisa ditentukan."""
+    """Waktu unggah foto (epoch detik): dari created_at, atau dari angka timestamp di nama file."""
     ca = info.get("created_at") or info.get("updated_at")
     if ca:
         try:
@@ -154,12 +144,7 @@ def waktu_foto_epoch(info):
 
 
 def pilih_file_terbaru(files):
-    """Pilih file gambar terbaru dari hasil list() Supabase.
-
-    Urutan penentu: created_at / updated_at, lalu angka timestamp di awal
-    nama file (mis. '1793541712542-daun.jpg'). Folder dan file placeholder
-    (.emptyFolderPlaceholder) otomatis terabaikan.
-    """
+    """Pilih file gambar terbaru dari hasil list() Supabase."""
     kandidat = [
         f for f in (files or [])
         if f.get("name") and f["name"].lower().endswith(EXT_GAMBAR)
@@ -189,43 +174,34 @@ def cari_file_terbaru():
     if info is not None:
         return f"{SUPABASE_FOLDER}/{info['name']}", info
 
-    # Diagnosa: tampilkan apa yang sebenarnya terlihat oleh script
-    nama_terlihat = [f.get("name") for f in (files or [])]
-    print(f"[DEBUG] Isi '{SUPABASE_FOLDER}' yang terlihat oleh script: {nama_terlihat}")
-    if not files:
-        print("[DEBUG] List kosong. Penyebab umum: tidak ada policy SELECT untuk role 'anon' "
-              "pada storage.objects (lihat catatan di bawah script), atau nama folder salah.")
-    else:
-        print(f"[DEBUG] Ada file tapi tidak berekstensi {EXT_GAMBAR}.")
     return None, None
 
 
 def download_gambar(path_lengkap):
-    """Download via API; jika gagal, coba lewat public URL (bucket PUBLIC)."""
+    """Download citra dari Supabase dan lakukan koreksi rotasi EXIF."""
     data = None
     try:
         data = supabase.storage.from_(BUCKET_NAME).download(path_lengkap)
     except Exception as e:
-        print(f"[WARN] Download via API gagal ({e}). Mencoba public URL...")
         try:
             url = supabase.storage.from_(BUCKET_NAME).get_public_url(path_lengkap)
             r = requests.get(url, timeout=15)
             r.raise_for_status()
             data = r.content
         except Exception as e2:
-            print(f"[ERROR] Download via public URL juga gagal: {e2}")
+            print(f"[ERROR] Download gambar gagal: {e2}")
             return None
 
     try:
         img = Image.open(io.BytesIO(data))
-        return ImageOps.exif_transpose(img)  # koreksi rotasi foto HP
+        return ImageOps.exif_transpose(img)
     except Exception as e:
-        print(f"[ERROR] File bukan gambar yang valid: {e}")
+        print(f"[ERROR] File bukan gambar valid: {e}")
         return None
 
 
 # ==========================================================
-# 3. KOMUNIKASI FIREBASE (GET & PATCH)
+# 3. KOMUNIKASI FIREBASE
 # ==========================================================
 def ambil_data_iot_firebase():
     url = f"{FIREBASE_DB_URL}{NODE_PATH}.json?auth={FIREBASE_API_KEY}"
@@ -238,26 +214,10 @@ def ambil_data_iot_firebase():
         return {}
 
 
-def update_keputusan_ke_firebase(main_payload, fuzzy_payload):
-    url_main = f"{FIREBASE_DB_URL}{NODE_PATH}.json?auth={FIREBASE_API_KEY}"
-    url_fuzzy = f"{FIREBASE_DB_URL}{NODE_PATH}/fuzzy_output.json?auth={FIREBASE_API_KEY}"
-    url_log = f"{FIREBASE_DB_URL}/history_log/cabai_01.json?auth={FIREBASE_API_KEY}"
-    try:
-        requests.patch(url_main, json=main_payload, timeout=8)
-        requests.patch(url_fuzzy, json=fuzzy_payload, timeout=8)
-        requests.post(url_log, json=fuzzy_payload, timeout=8)
-        return True
-    except Exception as e:
-        print(f"[ERROR] Gagal memperbarui data ke Firebase: {e}")
-        return False
-
-
 # ==========================================================
 # 4. ANALISIS CNN & MESIN FUZZY LOGIC
 # ==========================================================
 def analisis_citra_pil(pil_img):
-    # Model sudah punya layer Rescaling [-1,1] di dalamnya,
-    # jadi cukup kirim piksel mentah 0-255 (jangan dinormalisasi lagi).
     img_resized = pil_img.convert("RGB").resize((224, 224))
     img_array = keras.utils.img_to_array(img_resized)
     img_batch = np.expand_dims(img_array, axis=0)
@@ -280,9 +240,7 @@ def analisis_citra_pil(pil_img):
 
 
 def trapesium(x, a, b, c, d):
-    """Fungsi keanggotaan trapesium [a, b, c, d].
-    Plateau diperiksa lebih dulu agar bahu kiri (a=b) dan bahu kanan (c=d)
-    bernilai 1 di titik batas (mis. kelembapan 0% = Kering, RH 100% = Tinggi)."""
+    """Fungsi keanggotaan trapesium [a, b, c, d] dengan prioritas plateau."""
     if b <= x <= c:
         return 1.0
     if x <= a or x >= d:
@@ -293,8 +251,6 @@ def trapesium(x, a, b, c, d):
 
 
 def hitung_fuzzy_dan_workflow(hst, rh_udara, soil_moisture, temperature, skor_cnn):
-    # Kelembapan udara (%RH, DHT22) menggantikan pH tanah. Pemetaan aturan:
-    # pH Asam -> RH Tinggi (kondisi pemicu penyakit), Netral -> Sedang, Basa -> Rendah.
     mu_rh = {
         "Rendah": trapesium(rh_udara, 0.0, 0.0, 50.0, 60.0),
         "Sedang": trapesium(rh_udara, 50.0, 60.0, 75.0, 85.0),
@@ -384,11 +340,10 @@ def hitung_fuzzy_dan_workflow(hst, rh_udara, soil_moisture, temperature, skor_cn
 
 
 # ==========================================================
-# 5. EKSEKUSI UTAMA PIPELINE CLOUD (CONTINUOUS SCANNING)
+# 5. VALIDASI KELENGKAPAN IOT (100% DATA RIIL, TANPA DEMO)
 # ==========================================================
 def baca_sensor(data_iot):
-    """Ambil suhu, kelembapan, pH, HST dari data Firebase (dengan alias nama).
-    Return (dict_sensor, daftar_kunci_hilang)."""
+    """Ambil suhu, kelembapan tanah, dan RH udara dari data Firebase."""
     hasil, hilang = {}, []
     for nama, alias in KUNCI_SENSOR.items():
         nilai = None
@@ -406,8 +361,7 @@ def baca_sensor(data_iot):
 
 
 def perbarui_cache_cnn():
-    """Cek foto terbaru; CNN hanya dijalankan jika fotonya BARU.
-    Return True jika ada hasil CNN yang bisa dipakai (baru atau dari cache)."""
+    """Cek foto terbaru di Supabase. Return True jika citra tersedia & valid."""
     global _cache_cnn, _foto_terakhir_diproses
 
     path_foto, info = cari_file_terbaru()
@@ -416,9 +370,9 @@ def perbarui_cache_cnn():
 
     id_foto = f"{path_foto}|{info.get('created_at')}|{info.get('updated_at')}"
     if id_foto == _foto_terakhir_diproses:
-        return True  # foto sama, pakai hasil CNN yang sudah ada
+        return True  # foto sama, gunakan cache
 
-    print(f"       -> Foto baru: '{path_foto}' (created_at: {info.get('created_at')})")
+    print(f"       -> Foto daun baru: '{path_foto}' (waktu: {info.get('created_at')})")
     pil_img = download_gambar(path_foto)
     if pil_img is None:
         return _cache_cnn is not None
@@ -431,37 +385,63 @@ def perbarui_cache_cnn():
     return True
 
 
-def evaluasi_iot(data_iot):
-    """Tentukan status IoT dan nilai sensor yang dipakai fuzzy.
+def evaluasi_citra():
+    """Memeriksa apakah citra daun di Supabase tersedia DAN berumur <= 24 jam terakhir."""
+    ada = perbarui_cache_cnn()
+    if not ada or _cache_cnn is None:
+        return {
+            "valid": False,
+            "umur_jam": None,
+            "foto": None,
+            "alasan": "Belum ada file citra di bucket fusashield-image/cabai_01"
+        }
 
-    status: AKTIF | MENUNGGU | SENSOR_TIDAK_LENGKAP | TIDAK_AKTIF | TIDAK_ADA_DATA
-    Sensor yang belum masuk diganti NILAI_DEMO_SENSOR (ditandai sumber 'DEMO').
-    siap_pompa hanya True jika ESP32 terbukti hidup DAN ketiga sensor nyata.
+    sekarang = time.time()
+    ts_foto = _cache_cnn.get("ts")
+    umur_jam = ((sekarang - ts_foto) / 3600.0) if ts_foto else None
+
+    # Syarat mutlak: Foto harus berasal dari 24 jam terakhir
+    if umur_jam is not None and umur_jam > FOTO_MAKS_UMUR_JAM:
+        return {
+            "valid": False,
+            "umur_jam": round(umur_jam, 2),
+            "foto": _cache_cnn["path"],
+            "alasan": f"Citra '{_cache_cnn['path']}' KADALUARSA (umur {umur_jam:.1f} jam > batas {FOTO_MAKS_UMUR_JAM:.0f} jam). Harap unggah foto daun cabai terbaru!"
+        }
+
+    return {
+        "valid": True,
+        "umur_jam": None if umur_jam is None else round(umur_jam, 2),
+        "foto": _cache_cnn["path"],
+        "alasan": f"Citra valid dari 24 jam terakhir (umur {umur_jam:.1f} jam)" if umur_jam is not None else "Citra valid"
+    }
+
+
+def evaluasi_iot(data_iot):
+    """Mengevaluasi kelengkapan dan keaktifan telemetri IoT ESP32.
+    TIDAK MENGGUNAKAN NILAI DEMO/SIMULASI. HANYA MENERIMA DATA RIIL.
     """
     global _iot_uptime_terakhir, _iot_waktu_berubah, _iot_pernah_berubah
-    nama = ["temperature", "soil_moisture", "humidity"]
     sekarang = time.time()
-    semua_demo = {"nilai": dict(NILAI_DEMO_SENSOR), "sumber": {n: "DEMO" for n in nama},
-                  "siap_pompa": False}
 
     if not data_iot:
-        return dict(semua_demo, status="TIDAK_ADA_DATA",
-                    alasan=["Firebase kosong atau tidak terjangkau"])
+        return {
+            "valid": False,
+            "status": "TIDAK_ADA_DATA",
+            "nilai": None,
+            "alasan": ["Firebase node /monitoring/cabai_01 masih kosong"]
+        }
 
     alasan = []
     sensor, hilang = baca_sensor(data_iot)
-    if data_iot.get("soil_valid") is False:
-        if ABAIKAN_SOIL_INVALID_UNTUK_DEMO:
-            alasan.append("sensor tanah soil_valid=False dari ESP32 (DIABAIKAN karena mode demo aktif)")
-            if sensor.get("soil_moisture") is None:
-                sensor["soil_moisture"] = NILAI_DEMO_SENSOR["soil_moisture"]
-        else:
-            sensor["soil_moisture"] = None
-            if "soil_moisture" not in hilang:
-                hilang.append("soil_moisture")
-            alasan.append("sensor tanah ditandai TIDAK VALID oleh ESP32 (cek kabel/kalibrasi)")
 
-    # Apakah ESP32 benar-benar hidup? (uptime_ms harus terus berubah)
+    # Sensor tanah harus valid (jika sensor melaporkan probe tidak valid)
+    if data_iot.get("soil_valid") is False:
+        if "soil_moisture" not in hilang:
+            hilang.append("soil_moisture")
+        alasan.append("sensor tanah ditandai TIDAK VALID oleh ESP32 (cek probe/kabel)")
+
+    # Periksa uptime ESP32 untuk membuktikan ESP32 hidup dan aktif
     uptime = data_iot.get("uptime_ms")
     hidup = "AKTIF"
     if uptime is not None:
@@ -469,45 +449,63 @@ def evaluasi_iot(data_iot):
             _iot_uptime_terakhir, _iot_waktu_berubah, _iot_pernah_berubah = uptime, sekarang, False
         elif uptime != _iot_uptime_terakhir:
             _iot_uptime_terakhir, _iot_waktu_berubah, _iot_pernah_berubah = uptime, sekarang, True
+        
         diam = sekarang - _iot_waktu_berubah
         if diam > IOT_TIMEOUT_DETIK:
             hidup = "TIDAK_AKTIF"
         elif not _iot_pernah_berubah:
             hidup = "MENUNGGU"
+    else:
+        hidup = "TIDAK_AKTIF"
+        alasan.append("field uptime_ms belum dikirim oleh ESP32")
 
     if hidup == "TIDAK_AKTIF":
-        return dict(semua_demo, status="TIDAK_AKTIF",
-                    alasan=[f"ESP32 tidak mengirim data baru > {IOT_TIMEOUT_DETIK} detik "
-                            f"(data di Firebase sudah lama, diabaikan)"])
-
-    nilai, sumber = {}, {}
-    for n in nama:
-        if sensor.get(n) is None:
-            nilai[n], sumber[n] = NILAI_DEMO_SENSOR[n], "DEMO"
-        else:
-            nilai[n], sumber[n] = sensor[n], "IoT"
+        alasan.append(f"ESP32 tidak mengirim data baru > {IOT_TIMEOUT_DETIK} detik (ESP32 offline)")
+        return {
+            "valid": False,
+            "status": "TIDAK_AKTIF",
+            "nilai": None,
+            "alasan": alasan
+        }
 
     if hilang:
-        status = "SENSOR_TIDAK_LENGKAP"
-        alasan.append(f"sensor belum masuk: {hilang}. Kunci di Firebase: {sorted(data_iot.keys())}")
-    elif hidup == "MENUNGGU":
-        status = "MENUNGGU"
-        alasan.append("menunggu bukti ESP32 aktif (uptime_ms belum terlihat berubah)")
-    else:
-        status = "AKTIF"
+        alasan.append(f"Sensor belum lengkap: {hilang}. Kunci di Firebase: {sorted(data_iot.keys())}")
+        return {
+            "valid": False,
+            "status": "SENSOR_TIDAK_LENGKAP",
+            "nilai": None,
+            "alasan": alasan
+        }
 
-    siap_pompa = (status == "AKTIF")
-    if ABAIKAN_SOIL_INVALID_UNTUK_DEMO and hidup == "AKTIF" and (not hilang or hilang == ["soil_moisture"]):
-        siap_pompa = True
+    if hidup == "MENUNGGU":
+        alasan.append("menunggu uptime_ms ESP32 berubah (memastikan koneksi aktif)")
+        return {
+            "valid": False,
+            "status": "MENUNGGU",
+            "nilai": None,
+            "alasan": alasan
+        }
 
-    return {"status": status, "alasan": alasan, "nilai": nilai, "sumber": sumber,
-            "siap_pompa": siap_pompa}
+    # Data IoT 100% lengkap dan aktif
+    return {
+        "valid": True,
+        "status": "AKTIF",
+        "nilai": {
+            "temperature": float(sensor["temperature"]),
+            "soil_moisture": float(sensor["soil_moisture"]),
+            "humidity": float(sensor["humidity"])
+        },
+        "alasan": ["Seluruh sensor IoT (suhu, kelembapan tanah, RH udara) aktif dan terbaca normal"]
+    }
 
 
+# ==========================================================
+# 6. REKOMENDASI AGRONOMI GROQ LLM (XAI)
+# ==========================================================
 SARAN_PER_KELAS = {
     "Healthy Leaf": "Daun terlihat sehat. Lanjutkan pemantauan rutin dan jaga drainase agar tanah tidak tergenang.",
     "Nutrition Deficiency": "Gejala menguning/klorosis mengarah ke kekurangan hara atau gangguan serapan akar. "
-                            "Periksa jadwal pemupukan (N, Mg, Fe), pastikan drainase baik, dan amati apakah gejala menyebar dari tanaman bawah.",
+                            "Periksa jadwal pemupukan (N, Mg, Fe), pastikan drainase baik, dan amati apakah gejala menyebar dari daun bawah.",
     "Bacterial Spot": "Buang daun bergejala berat, hindari percikan air ke daun, dan sanitasi alat. Hindari menyiram pada sore hari.",
     "Cercospora Leaf Spot": "Kurangi kelembapan di sekitar tajuk (jarak tanam, pemangkasan), buang daun terinfeksi, dan hindari penyiraman dari atas.",
     "Curl Virus": "Kendalikan serangga vektor (kutu kebul/thrips), cabut tanaman yang terinfeksi berat, dan pisahkan dari tanaman sehat.",
@@ -516,14 +514,10 @@ SARAN_PER_KELAS = {
 
 
 def rekomendasi_template(k):
-    """Cadangan tanpa LLM: teks tetap dari kelas CNN + keputusan fuzzy. Selalu tersedia."""
+    """Cadangan tanpa LLM: teks tetap dari kelas CNN + keputusan fuzzy."""
     saran = SARAN_PER_KELAS.get(k["cnn_label"], "Pantau kondisi tanaman dan lakukan pemeriksaan langsung di lahan.")
-    pompa = ("Pompa otomatis hanya menjalankan dosis dari fuzzy; lakukan tindakan fisik di atas sebagai pelengkap."
-             if k["pompa_diizinkan"] else
-             "Saat ini hanya perhitungan (data IoT belum lengkap/aktif), pompa tidak menyala.")
     return (f"Indikasi: {k['cnn_label']} (skor gejala {k['skor_gejala']}%, tingkat {k['tingkat']}). {saran} "
-            f"Pencegahan: hindari genangan, jaga kelembapan tanah sedang, dan pantau tanaman sekitar. {pompa} "
-            f"(Gejala visual belum berarti Fusarium; konfirmasi di lapangan.)")
+            f"Pencegahan: hindari genangan, jaga aerasi tanah, dan pantau penyebaran gejala visual di lahan.")
 
 
 PROMPT_SISTEM = (
@@ -534,7 +528,7 @@ PROMPT_SISTEM = (
     "(1) JANGAN menghitung, mengubah, atau mengusulkan angka dosis/durasi pompa; dosis dari fuzzy sudah final, "
     "dan Anda tidak boleh menyebut angka ml/cc selain yang diberikan. "
     "(2) Nyatakan temuan sebagai INDIKASI, bukan konfirmasi mutlak patogen Fusarium di laboratorium. "
-    "(3) Jika sumber sensor bernilai DEMO, katakan itu nilai simulasi dan jangan menyimpulkan mikroklimat darinya. "
+    "(3) Analisis mikroklimat tanah dan udara secara ilmiah berdasarkan data riil telemetri sensor. "
     "(4) Format Output: Maksimal 3 kalimat padat dalam Bahasa Indonesia ilmiah tanpa bullet points yang memuat: "
     "(1) korelasi mikroklimat & gejala visual CNN terhadap risiko patogen Fusarium oxysporum, "
     "(2) evaluasi kesesuaian dosis agen hayati Trichoderma, dan "
@@ -552,11 +546,9 @@ def _dosis_dalam_teks_valid(teks, dosis_ml):
 
 
 def panggil_llm(k):
-    """Return (teks, sumber). Menjalankan model utama (llama-3.3-70b-versatile),
-    auto-fallback ke model kedua (llama-3.1-8b-instant), dan
-    terakhir rule-based fallback bila offline/kedua API gagal."""
+    """Panggil Groq LLM dengan auto-fallback tier 1 (70b) -> tier 2 (8b) -> template offline."""
     if not GROQ_API_KEY:
-        return rekomendasi_template(k), "template (GROQ_API_KEY belum diset)"
+        return rekomendasi_template(k), "template (GROQ_API_KEY belum diset di .env)"
 
     model_kandidat = [GROQ_MODEL]
     if GROQ_MODEL_FALLBACK and GROQ_MODEL_FALLBACK != GROQ_MODEL:
@@ -595,15 +587,13 @@ def panggil_llm(k):
         except Exception as e:
             riwayat_error.append(f"{model_name}: {type(e).__name__}")
 
-    # Fallback terakhir ke template jika semua model Groq gagal/offline
     alasan = ", ".join(riwayat_error) if riwayat_error else "tidak diketahui"
     return rekomendasi_template(k), f"template (fallback offline: {alasan})"
 
 
 def rekomendasi_untuk(k, foto_baru):
-    """Panggil LLM hanya bila perlu (foto baru, atau kondisi berubah dan jeda cukup)."""
     global _llm_cache
-    kunci = (k["cnn_label"], k["tingkat"], k["status_iot"], k["mode_keputusan"], k["foto"])
+    kunci = (k["cnn_label"], k["tingkat"], k["dosis_fuzzy_ml"], k["foto"])
     sekarang = time.time()
     c = _llm_cache
     perlu = (c["key"] is None or foto_baru or
@@ -615,34 +605,26 @@ def rekomendasi_untuk(k, foto_baru):
 
 
 LABEL_STATUS_IOT = {
-    "AKTIF": "AKTIF - sensor nyata dari ESP32",
-    "MENUNGGU": "MENUNGGU konfirmasi ESP32 (data nyata dipakai, pompa belum diizinkan)",
-    "SENSOR_TIDAK_LENGKAP": "SENSOR TIDAK LENGKAP - sebagian memakai nilai DEMO",
-    "TIDAK_AKTIF": "TIDAK AKTIF - ESP32 tidak mengirim data baru, nilai DEMO dipakai",
-    "TIDAK_ADA_DATA": "BELUM ADA DATA IoT - nilai DEMO dipakai",
+    "AKTIF": "AKTIF - Telemetri nyata dari sensor ESP32",
+    "MENUNGGU": "MENUNGGU konfirmasi ESP32 (uptime belum berubah)",
+    "SENSOR_TIDAK_LENGKAP": "TIDAK LENGKAP - Menunggu seluruh sensor terhubung",
+    "TIDAK_AKTIF": "OFFLINE - ESP32 tidak mengirim data / mati",
+    "TIDAK_ADA_DATA": "KOSONG - Belum ada data di Firebase",
 }
 
 
 def cetak_ringkasan(c):
-    """Tampilkan hasil analisis lengkap di terminal (untuk laporan progres)."""
     g = "+" + "=" * 70
     print(g)
-    print(f"| HASIL ANALISIS FUSASHIELD   {c['waktu']}")
+    print(f"| HASIL ANALISIS FUSASHIELD (100% DATA RIIL)   {c['waktu']}")
     print(g)
     umur = "umur tidak diketahui" if c["umur_jam"] is None else f"umur {c['umur_jam']:.1f} jam"
     print(f"| Foto        : {c['foto']}  ({umur})")
     print(f"| CNN         : {c['label']} ({c['conf']}%)  ->  Skor Gejala {c['skor']}%")
-    if c["catatan_foto"]:
-        print(f"|               {c['catatan_foto']}")
     print(f"| Status IoT  : {LABEL_STATUS_IOT[c['status_iot']]}")
-    for a in c["alasan_iot"]:
-        print(f"|               - {a}")
-    unit = {"temperature": "C", "soil_moisture": "%", "humidity": "%"}
-    nama = {"temperature": "Suhu", "soil_moisture": "Kelembapan tanah", "humidity": "Kelembapan udara"}
-    for n in ("temperature", "soil_moisture", "humidity"):
-        tag = "[IoT ]" if c["sumber"][n] == "IoT" else "[DEMO]"
-        info = "" if c["sumber"][n] == "IoT" else "  <- belum masuk dari IoT"
-        print(f"|   {nama[n]:<18}: {c['nilai'][n]:>6} {unit[n]:<2} {tag}{info}")
+    print(f"|   Suhu              : {c['nilai']['temperature']:>6.1f} C   [IoT]")
+    print(f"|   Kelembapan tanah  : {c['nilai']['soil_moisture']:>6.1f} %   [IoT]")
+    print(f"|   Kelembapan udara  : {c['nilai']['humidity']:>6.1f} %   [IoT]")
     print(f"|   {'HST':<18}: {c['hst']:>6}    [{c['sumber_hst']}]  {c['fase']}")
     print("| --- Perhitungan fuzzy " + "-" * 47)
     for k, mu in c["detail"].items():
@@ -659,21 +641,52 @@ def cetak_ringkasan(c):
     print(g)
 
 
-def jalankan_pipeline_cloud(default_hst=41, auto_off=True):
+# ==========================================================
+# 7. EKSEKUSI UTAMA PIPELINE
+# ==========================================================
+def jalankan_pipeline_cloud(default_hst=41):
     global _cache_cnn, _waktu_pompa_terakhir, _ack_terakhir
 
-    print("[SCAN] Membaca sensor Firebase & memeriksa foto Supabase...")
+    print("\n[SCAN] Memeriksa kelengkapan data IoT Firebase & citra Supabase...")
 
-    # --- (1) IoT: dibaca setiap scan. TIDAK menghentikan proses bila belum masuk ---
+    # --- (1) EVALUASI DATA IOT ---
     data_iot = ambil_data_iot_firebase()
     iot = evaluasi_iot(data_iot)
-    print(f"       -> [IoT] {iot['status']}")
 
     ack = data_iot.get("ack") if data_iot else None
     if isinstance(ack, dict) and (ack.get("id"), ack.get("status")) != _ack_terakhir:
         _ack_terakhir = (ack.get("id"), ack.get("status"))
-        print(f"       -> [ACK ESP32] perintah {ack.get('id')}: {ack.get('status')} "
+        print(f"       -> [ACK ESP32] Perintah {ack.get('id')}: {ack.get('status')} "
               f"(aktual {ack.get('durasi_aktual_ms')} ms)")
+
+    # --- (2) EVALUASI CITRA DAUN DARI SUPABASE (HANYA 24 JAM TERAKHIR) ---
+    citra = evaluasi_citra()
+
+    # --- (3) GERBANG KELENGKAPAN: HARUS LENGKAP KEDUANYA BARU BEKERJA ---
+    if not iot["valid"] or not citra["valid"]:
+        print("+" + "-" * 70 + "+")
+        print("| [STANDBY] MENUNGGU KELENGKAPAN DATA RIIL (HANYA 24 JAM TERAKHIR)")
+        print("+" + "-" * 70 + "+")
+        status_iot_txt = "LENGKAP & AKTIF" if iot["valid"] else f"BELUM LENGKAP ({LABEL_STATUS_IOT.get(iot['status'], iot['status'])})"
+        print(f"| Telemetri IoT : {status_iot_txt}")
+        for al in iot["alasan"]:
+            print(f"|                 - {al}")
+        
+        status_foto_txt = "VALID (<= 24 Jam Terakhir)" if citra["valid"] else "TIDAK VALID / KADALUARSA"
+        print(f"| Citra Daun    : {status_foto_txt}")
+        print(f"|                 - {citra['alasan']}")
+        print("+" + "-" * 70 + "+")
+        print("[INFO] Analisis dan pompa ditangguhkan sampai data IoT lengkap dan foto baru (<= 24 jam) tersedia. Pindai ulang 10s...\n")
+        return False
+
+    # JIKA KEDUANYA LENGKAP: EKSEKUSI PIPELINE DENGAN DATA 100% NYATA
+    cnn = _cache_cnn
+    foto_baru = cnn.pop("baru", False)
+
+    nilai = iot["nilai"]
+    temperature = nilai["temperature"]
+    soil_moisture = nilai["soil_moisture"]
+    rh_udara = nilai["humidity"]
 
     if data_iot and "hst" in data_iot:
         hst_tanaman, sumber_hst = int(float(data_iot["hst"])), "Firebase"
@@ -683,77 +696,45 @@ def jalankan_pipeline_cloud(default_hst=41, auto_off=True):
     if _waktu_pompa_terakhir == 0 and data_iot:
         _waktu_pompa_terakhir = float(data_iot.get("last_pump_epoch", 0) or 0)
 
-    # --- (2) FOTO: CNN hanya jalan jika ada foto baru ---
-    if not perbarui_cache_cnn():
-        print("       -> Belum ada foto yang bisa dianalisis di Supabase. Memindai ulang...")
-        return False
-    cnn = _cache_cnn
-    foto_baru = cnn.pop("baru", False)
-
-    nilai, sumber = iot["nilai"], iot["sumber"]
-    temperature, soil_moisture, rh_udara = nilai["temperature"], nilai["soil_moisture"], nilai["humidity"]
-
-    # --- (3) FUZZY: selalu dihitung (sensor nyata, atau nilai DEMO jika IoT belum masuk) ---
+    # --- (4) MESIN FUZZY DENGAN DATA RIIL ---
     sekarang = time.time()
     umur_jam = ((sekarang - cnn["ts"]) / 3600.0) if cnn.get("ts") else None
-    foto_basi = (umur_jam is None) or (umur_jam > FOTO_MAKS_UMUR_JAM)
-    # Aturan keselamatan foto basi hanya relevan bila pompa BISA menyala.
-    # Pada mode perhitungan (tanpa IoT) foto lama tetap dipakai agar demo berjalan.
-    blok_foto = foto_basi and iot["siap_pompa"]
-    skor_dipakai = 0.0 if blok_foto else cnn["skor"]
-    catatan_foto = ""
-    if blok_foto:
-        catatan_foto = (f"FOTO BASI (> {FOTO_MAKS_UMUR_JAM:.0f} jam): skor CNN tidak dipakai, "
-                        f"keputusan dari sensor saja (maks. preventif)")
-    elif foto_basi:
-        catatan_foto = "Foto lama tetap dipakai karena mode perhitungan (pompa tidak aktif)"
 
     dosis_ml, durasi_detik, rekomendasi, status_mitigasi, fase_hst = hitung_fuzzy_dan_workflow(
-        hst_tanaman, rh_udara, soil_moisture, temperature, skor_dipakai
+        hst_tanaman, rh_udara, soil_moisture, temperature, cnn["skor"]
     )
-    if blok_foto:
-        status_mitigasi += " [SENSOR SAJA: foto basi]"
     tingkat = tingkat_dosis(dosis_ml)
 
-    # --- (4) KEPUTUSAN POMPA: butuh IoT AKTIF + cooldown sesuai tingkat ---
+    # --- (5) KEPUTUSAN POMPA & COOLDOWN ---
     cooldown_detik = COOLDOWN_PER_TINGKAT.get(tingkat, 0) * SKALA_COOLDOWN
     sisa_cooldown = cooldown_detik - (sekarang - _waktu_pompa_terakhir)
-    menyalakan = iot["siap_pompa"] and (rekomendasi == "ON") and (sisa_cooldown <= 0)
+    menyalakan = (rekomendasi == "ON") and (sisa_cooldown <= 0)
     pump_cmd = "ON" if menyalakan else "OFF"
 
     if menyalakan:
         ket_pompa = f"PERINTAH DIKIRIM ke ESP32: {dosis_ml} ml / {durasi_detik} detik"
-    elif not iot["siap_pompa"]:
-        ket_pompa = "TIDAK DINYALAKAN - hanya perhitungan (data IoT belum lengkap/aktif)"
     elif rekomendasi == "ON":
         ket_pompa = f"DIKUNCI cooldown {tingkat} {cooldown_detik/3600:.1f} jam, sisa {int(sisa_cooldown)} detik"
     else:
-        ket_pompa = "Tidak perlu menyala (dosis < 10 ml)"
+        ket_pompa = "Tidak perlu menyala (dosis < 10 ml / kondisi aman)"
 
     waktu_skrg = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if any(v == "DEMO" for v in sumber.values()):
-        mode_keputusan = "DEMO_TANPA_IOT"
-    elif blok_foto:
-        mode_keputusan = "SENSOR_SAJA"
-    else:
-        mode_keputusan = "CNN+SENSOR"
 
-    # --- (5) LLM: narasi saja, SETELAH dosis & keputusan pompa final ---
+    # --- (6) REKOMENDASI AGRONOMI GROQ LLM (DATA RIIL) ---
     rek_llm, sumber_llm = rekomendasi_untuk({
         "cnn_label": cnn["label"], "cnn_confidence": cnn["conf"], "skor_gejala": cnn["skor"],
         "tingkat": tingkat, "dosis_fuzzy_ml": dosis_ml, "durasi_detik": durasi_detik,
         "status_mitigasi": status_mitigasi, "fase": fase_hst, "hst": hst_tanaman,
         "suhu_c": temperature, "kelembapan_tanah_persen": soil_moisture,
-        "kelembapan_udara_persen": rh_udara, "sumber_sensor": sumber,
-        "status_iot": iot["status"], "mode_keputusan": mode_keputusan,
-        "foto_basi": foto_basi, "pompa_diizinkan": iot["siap_pompa"], "foto": cnn["path"],
+        "kelembapan_udara_persen": rh_udara, "status_iot": "AKTIF",
+        "mode_keputusan": "DATA_RIIL_IOT+CNN", "foto": cnn["path"],
     }, foto_baru)
 
     cetak_ringkasan({
         "waktu": waktu_skrg, "foto": cnn["path"], "umur_jam": umur_jam,
         "label": cnn["label"], "conf": cnn["conf"], "skor": cnn["skor"],
-        "catatan_foto": catatan_foto, "status_iot": iot["status"], "alasan_iot": iot["alasan"],
-        "nilai": nilai, "sumber": sumber, "hst": hst_tanaman, "sumber_hst": sumber_hst,
+        "status_iot": iot["status"], "alasan_iot": iot["alasan"],
+        "nilai": nilai, "hst": hst_tanaman, "sumber_hst": sumber_hst,
         "fase": fase_hst, "detail": _fuzzy_detail, "dosis": dosis_ml, "tingkat": tingkat,
         "durasi": durasi_detik, "status_mitigasi": status_mitigasi, "ket_pompa": ket_pompa,
         "rekomendasi_llm": rek_llm, "sumber_llm": sumber_llm,
@@ -762,12 +743,12 @@ def jalankan_pipeline_cloud(default_hst=41, auto_off=True):
     main_payload = {}
     if menyalakan:
         main_payload["last_pump_epoch"] = int(sekarang)
+
     fuzzy_payload = {
         "cnn_label": cnn["label"],
         "cnn_confidence": cnn["conf"],
         "cnn_symptom_score": cnn["skor"],
-        "status_iot": iot["status"],
-        "sumber_sensor": sumber,
+        "status_iot": "AKTIF",
         "input_suhu": temperature,
         "input_kelembapan": soil_moisture,
         "input_kelembapan_udara": rh_udara,
@@ -780,9 +761,7 @@ def jalankan_pipeline_cloud(default_hst=41, auto_off=True):
         "pump_command": pump_cmd,
         "foto_sumber": cnn["path"],
         "foto_umur_jam": None if umur_jam is None else round(umur_jam, 2),
-        "foto_basi": foto_basi,
-        "skor_dipakai_fuzzy": skor_dipakai,
-        "mode_keputusan": mode_keputusan,
+        "mode_keputusan": "DATA_RIIL_IOT+CNN",
         "tingkat_dosis": tingkat,
         "cooldown_jam": round(cooldown_detik / 3600.0, 2),
         "sisa_cooldown_detik": max(0, int(sisa_cooldown)) if rekomendasi == "ON" else 0,
@@ -791,11 +770,11 @@ def jalankan_pipeline_cloud(default_hst=41, auto_off=True):
         "last_updated": waktu_skrg
     }
 
-    # Kegagalan menulis ke Firebase TIDAK menghentikan program (hasil tetap tampil di terminal)
     url_main = f"{FIREBASE_DB_URL}{NODE_PATH}.json?auth={FIREBASE_API_KEY}"
     url_fuzzy = f"{FIREBASE_DB_URL}{NODE_PATH}/fuzzy_output.json?auth={FIREBASE_API_KEY}"
     url_cmd = f"{FIREBASE_DB_URL}{NODE_PATH}/command.json?auth={FIREBASE_API_KEY}"
     url_log = f"{FIREBASE_DB_URL}/history_log/cabai_01.json?auth={FIREBASE_API_KEY}"
+
     try:
         if main_payload:
             requests.patch(url_main, json=main_payload, timeout=8)
@@ -803,7 +782,6 @@ def jalankan_pipeline_cloud(default_hst=41, auto_off=True):
         if foto_baru or menyalakan:
             requests.post(url_log, json=fuzzy_payload, timeout=8)
         if menyalakan and durasi_detik > 0:
-            # Perintah sekali pakai: ESP32 yang menghitung durasi & mematikan pompa sendiri
             perintah = {
                 "id": int(sekarang),
                 "dosis_ml": dosis_ml,
@@ -814,17 +792,17 @@ def jalankan_pipeline_cloud(default_hst=41, auto_off=True):
             requests.put(url_cmd, json=perintah, timeout=8)
             _waktu_pompa_terakhir = sekarang
             print(f"       -> [PERINTAH] id {perintah['id']} dikirim ke ESP32. Menunggu ack...")
-        print("       -> [FIREBASE] fuzzy_output diperbarui.")
+        print("       -> [FIREBASE] fuzzy_output diperbarui dengan data nyata.")
     except Exception as e:
         print(f"       -> [PERINGATAN] Gagal menulis ke Firebase ({e}). Hasil di atas tetap valid.")
     return True
 
 
 if __name__ == "__main__":
-    print("[INFO] Program FusaShield Cloud Controller Berjalan. Melakukan continuous scanning...")
+    print("[INFO] Program FusaShield Cloud Controller Berjalan (Mode 100% Data Riil).")
     while True:
         try:
-            jalankan_pipeline_cloud(default_hst=41, auto_off=True)
+            jalankan_pipeline_cloud(default_hst=41)
             time.sleep(10)
         except KeyboardInterrupt:
             print("\n[INFO] Program dihentikan secara manual oleh pengguna (Ctrl+C).")
@@ -832,4 +810,3 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[ERROR TERJADI] {e}. Melanjutkan scanning dalam 10 detik...")
             time.sleep(10)
-
