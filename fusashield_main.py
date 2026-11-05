@@ -140,6 +140,16 @@ try:
 except Exception:
     pass
 
+try:
+    import keras.layers
+    _orig_dense = keras.layers.Dense.__init__
+    def _patched_dense(self, *args, **kwargs):
+        kwargs.pop("quantization_config", None)
+        return _orig_dense(self, *args, **kwargs)
+    keras.layers.Dense.__init__ = _patched_dense
+except Exception:
+    pass
+
 print("[INFO] Memuat model CNN MobileNetV2 (.keras)...")
 model = keras.models.load_model(MODEL_PATH, compile=False)
 with open(LABELS_PATH, "r") as f:
