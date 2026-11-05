@@ -1,0 +1,7 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+keras>=3.0.0
+numpy
+pillow
+requests
+supabase

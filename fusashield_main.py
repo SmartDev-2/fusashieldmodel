@@ -55,8 +55,9 @@ FIREBASE_DB_URL = os.environ.get("FIREBASE_DB_URL", "")
 FIREBASE_API_KEY = os.environ.get("FIREBASE_API_KEY", "")
 NODE_PATH = os.environ.get("NODE_PATH", "/monitoring/cabai_01")
 
-MODEL_PATH = r"C:\project\Fusashield\fusashield_mobilenetv2.keras"
-LABELS_PATH = r"C:\project\Fusashield\class_names.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+MODEL_PATH = os.path.join(BASE_DIR, "fusashield_mobilenetv2.keras")
+LABELS_PATH = os.path.join(BASE_DIR, "class_names.json")
 
 EXT_GAMBAR = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 

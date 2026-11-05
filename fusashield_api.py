@@ -27,7 +27,7 @@ from socketserver import ThreadingMixIn
 
 # Konfigurasi Server API
 HOST = "0.0.0.0"       # Mendengarkan di semua interface jaringan
-PORT = 5000            # Port default API: http://localhost:5000
+PORT = int(os.environ.get("PORT", 5000))            # Port default API: http://localhost:5000
 
 # Muat variabel environment dari .env jika ada
 def _muat_env(path=".env"):
@@ -48,10 +48,13 @@ def _muat_env(path=".env"):
 
 _muat_env()
 
-# Konfigurasi Database Firebase FusaShield (Dari .env)
+# Konfigurasi Database Firebase & Supabase (Dari .env)
 FIREBASE_DB_URL = os.environ.get("FIREBASE_DB_URL", "")
 FIREBASE_API_KEY = os.environ.get("FIREBASE_API_KEY", "")
 NODE_PATH = os.environ.get("NODE_PATH", "/monitoring/cabai_01")
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+BUCKET_NAME = os.environ.get("BUCKET_NAME", "fusashield-image")
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -136,6 +139,7 @@ class FusaShieldAPIHandler(BaseHTTPRequestHandler):
                     "GET /api/fuzzy": "Hasil inferensi Fuzzy Logic (dosis ml, durasi pompa, tingkat keparahan, status)",
                     "GET /api/cnn": "Hasil klasifikasi gejala visual daun CNN MobileNetV2",
                     "GET /api/llm": "Narasi rekomendasi agronomi XAI terkini",
+                    "GET /api/status": "Status kesiapan sistem (apakah IoT lengkap & foto <= 24 jam)",
                     "GET /api/history?limit=20": "Riwayat riwayat log aksi mitigasi dan penyemprotan",
                     "POST /api/pump/trigger": "Kirim perintah manual dari website untuk menyalakan pompa"
                 }
@@ -166,12 +170,20 @@ class FusaShieldAPIHandler(BaseHTTPRequestHandler):
                     "uptime_ms": iot_data.get("uptime_ms") if iot_data else None,
                     "soil_valid": iot_data.get("soil_valid", True) if iot_data else True
                 },
+                "system_readiness": {
+                    "is_ready": (iot_data is not None and all(iot_data.get(k) is not None for k in ["temperature", "humidity", "soil_moisture"])) and (fuzzy_data is not None and fuzzy_data.get("foto_umur_jam") is not None and fuzzy_data.get("foto_umur_jam") <= 24.0),
+                    "iot_complete": iot_data is not None and all(iot_data.get(k) is not None for k in ["temperature", "humidity", "soil_moisture"]),
+                    "image_valid_24h": fuzzy_data is not None and fuzzy_data.get("foto_umur_jam") is not None and fuzzy_data.get("foto_umur_jam") <= 24.0,
+                    "mode": "100% DATA RIIL (TANPA DEMO)"
+                },
                 "cnn_vision": {
                     "label": fuzzy_data.get("cnn_label") if fuzzy_data else "Unknown",
                     "confidence_pct": fuzzy_data.get("cnn_confidence") if fuzzy_data else 0.0,
                     "symptom_score_pct": fuzzy_data.get("cnn_symptom_score") if fuzzy_data else 0.0,
                     "image_source": fuzzy_data.get("foto_sumber") if fuzzy_data else None,
-                    "image_age_hours": fuzzy_data.get("foto_umur_jam") if fuzzy_data else None
+                    "image_age_hours": fuzzy_data.get("foto_umur_jam") if fuzzy_data else None,
+                    "image_valid_24h": fuzzy_data.get("foto_umur_jam") is not None and fuzzy_data.get("foto_umur_jam") <= 24.0 if fuzzy_data else False,
+                    "image_public_url": f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{fuzzy_data.get('foto_sumber')}" if (fuzzy_data and fuzzy_data.get("foto_sumber") and SUPABASE_URL) else None
                 },
                 "fuzzy_decision": {
                     "dosis_ml": fuzzy_data.get("dosis_rekomendasi_ml", 0.0) if fuzzy_data else 0.0,
@@ -238,15 +250,20 @@ class FusaShieldAPIHandler(BaseHTTPRequestHandler):
             fuzzy_data = self._fetch_firebase(f"{NODE_PATH}/fuzzy_output")
             if fuzzy_data is None:
                 return self._send_json({"error": "Gagal membaca data CNN"}, 503)
+            foto_src = fuzzy_data.get("foto_sumber")
+            umur_jam = fuzzy_data.get("foto_umur_jam")
+            valid_24h = (umur_jam is not None and umur_jam <= 24.0)
+            pub_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{foto_src}" if (foto_src and SUPABASE_URL) else None
             return self._send_json({
                 "success": True,
                 "plant_id": "cabai_01",
                 "label": fuzzy_data.get("cnn_label"),
                 "confidence_pct": fuzzy_data.get("cnn_confidence"),
                 "symptom_score_pct": fuzzy_data.get("cnn_symptom_score"),
-                "foto_sumber": fuzzy_data.get("foto_sumber"),
-                "foto_umur_jam": fuzzy_data.get("foto_umur_jam"),
-                "foto_basi": fuzzy_data.get("foto_basi")
+                "foto_sumber": foto_src,
+                "foto_public_url": pub_url,
+                "foto_umur_jam": umur_jam,
+                "foto_valid_24h": valid_24h
             })
 
         # -------------------------------------------------------------
@@ -347,7 +364,26 @@ class FusaShieldAPIHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "Endpoint POST tidak ditemukan", "path": path}, 404)
 
 
+def _loop_cloud_controller():
+    print("[BACKGROUND WORKER] Menjalankan pemindaian otomatis FusaShield di latar belakang...")
+    try:
+        import fusashield_main
+        while True:
+            try:
+                fusashield_main.jalankan_pipeline_cloud()
+                time.sleep(10)
+            except Exception as err:
+                print(f"[WORKER ERROR] {err}. Mengulang dalam 10 detik...")
+                time.sleep(10)
+    except Exception as e:
+        print(f"[WORKER INIT ERROR] Gagal mengimpor fusashield_main: {e}")
+
+
 def run_api_server(host=HOST, port=PORT):
+    import threading
+    worker_thread = threading.Thread(target=_loop_cloud_controller, daemon=True)
+    worker_thread.start()
+
     server_address = (host, port)
     httpd = ThreadedHTTPServer(server_address, FusaShieldAPIHandler)
     print("=" * 65)
