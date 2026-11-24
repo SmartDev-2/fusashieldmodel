@@ -130,6 +130,12 @@ except Exception:
 
 try:
     import keras.layers
+    _orig_dense = keras.layers.Dense.__init__
+    def _patched_dense(self, *args, **kwargs):
+        kwargs.pop("quantization_config", None)
+        return _orig_dense(self, *args, **kwargs)
+    keras.layers.Dense.__init__ = _patched_dense
+
     _orig_bn = keras.layers.BatchNormalization.__init__
     def _patched_bn(self, *args, **kwargs):
         kwargs.pop("renorm", None)
