@@ -7,6 +7,9 @@ Sistem HANYA bekerja jika KEDUA syarat terpenuhi secara lengkap:
   1. Data Telemetri IoT dari ESP32 LENGKAP & AKTIF (Suhu, Tanah, RH Udara).
   2. Citra Daun Cabai TERSEDIA & VALID di Supabase Storage.
 TANPA DATA DEMO / NILAI SIMULASI.
+
+LLM: Cloudflare Workers AI (hanya memberi saran agronomi; dosis & pompa
+      sepenuhnya ditentukan oleh mesin fuzzy).
 =============================================================================
 """
 
@@ -24,6 +27,7 @@ from PIL import Image, ImageOps
 import numpy as np
 import keras
 from supabase import create_client, Client
+from label_translations import label_to_indonesian
 
 # ==========================================================
 # 1. KONFIGURASI KREDENSIAL (DARI .ENV)
@@ -63,7 +67,8 @@ EXT_GAMBAR = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 
 # Cooldown Protection: Penguncian pompa otomatis selama 12 jam (43.200 detik)
 # setelah penyemprotan untuk mencegah kejenuhan air tanah (over-watering).
-COOLDOWN_STANDAR_DETIK = 12 * 3600  # 12 jam (43.200 detik)
+# COOLDOWN_STANDAR_DETIK = 12 * 3600  # 12 jam (43.200 detik)
+COOLDOWN_STANDAR_DETIK = 5  # 12 jam (43.200 detik)
 COOLDOWN_PER_TINGKAT = {
     "KRITIS":    COOLDOWN_STANDAR_DETIK,   # dosis >= 70 ml (12 jam / 43.200 detik)
     "WASPADA":   COOLDOWN_STANDAR_DETIK,   # 35 ml <= dosis < 70 ml (12 jam / 43.200 detik)
@@ -78,12 +83,16 @@ FOTO_MAKS_UMUR_JAM = 24.0
 # ESP32 dianggap offline / mati.
 IOT_TIMEOUT_DETIK = 45
 
-# ---------------- LLM (Groq) : Narasi rekomendasi agronomi XAI ----------------
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-GROQ_MODEL_FALLBACK = os.environ.get("GROQ_MODEL_FALLBACK", "llama-3.1-8b-instant")
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-LLM_TIMEOUT_DETIK = 12
+# ---------------- LLM (Cloudflare Workers AI) : Narasi rekomendasi agronomi XAI ----------------
+# CF_ACCOUNT_ID : Account ID Cloudflare (dasbor -> Workers & Pages -> Overview, sisi kanan)
+# CF_API_TOKEN  : API Token dengan izin "Workers AI" (My Profile -> API Tokens)
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "")
+CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
+CF_MODEL = os.environ.get("CF_MODEL", "@cf/meta/llama-3.1-8b-instruct")
+CF_MODEL_FALLBACK = os.environ.get("CF_MODEL_FALLBACK", "@cf/meta/llama-3.2-3b-instruct")
+CF_API_BASE = "https://api.cloudflare.com/client/v4"
+
+LLM_TIMEOUT_DETIK = 15
 LLM_INTERVAL_MIN_DETIK = 600   # jarak minimal antar panggilan jika hanya kondisi yang berubah
 
 # Nama kunci sensor di Firebase (alias dicoba berurutan).
@@ -156,9 +165,97 @@ with open(LABELS_PATH, "r") as f:
     class_names = json.load(f)
 print(f"[INFO] Model MobileNetV2 siap digunakan! ({len(class_names)} kelas: {class_names})")
 
-# Cache internal pipeline
-_foto_terakhir_diproses = None
-_cache_cnn = None              # hasil CNN foto terakhir: dict(label, conf, skor, path)
+# Path state lokal persisten untuk deduplikasi gambar
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+PROCESSED_IMAGES_FILE = os.path.join(OUTPUT_DIR, ".processed_images.json")
+LEGACY_PROCESSED_IMAGE_FILE = os.path.join(BASE_DIR, ".last_processed_photo.json")
+_cache_cnn = None
+
+def _muat_processed_images_lokal():
+    """Membaca daftar processing_key gambar yang sudah diproses dari file lokal."""
+    processed_keys = set()
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    if os.path.exists(PROCESSED_IMAGES_FILE):
+        try:
+            with open(PROCESSED_IMAGES_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    processed_keys.update(data)
+                elif isinstance(data, dict):
+                    processed_keys.update(data.keys())
+        except Exception as e:
+            print(f"[WARN] Gagal membaca state lokal {PROCESSED_IMAGES_FILE}: {e}")
+    if os.path.exists(LEGACY_PROCESSED_IMAGE_FILE):
+        try:
+            with open(LEGACY_PROCESSED_IMAGE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            id_foto = data.get("id_foto") if isinstance(data, dict) else None
+            if isinstance(id_foto, str):
+                processed_keys.add(id_foto)
+        except Exception as e:
+            print(f"[WARN] Gagal membaca state lama {LEGACY_PROCESSED_IMAGE_FILE}: {e}")
+    return processed_keys
+
+def _simpan_processed_key_lokal_atomic(processing_key, metadata_tambahan=None):
+    """Menyimpan processing_key baru ke state lokal secara atomic."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    existing = {}
+    if os.path.exists(PROCESSED_IMAGES_FILE):
+        try:
+            with open(PROCESSED_IMAGES_FILE, "r", encoding="utf-8") as f:
+                content = json.load(f)
+                if isinstance(content, list):
+                    existing = {k: {} for k in content}
+                elif isinstance(content, dict):
+                    existing = content
+        except Exception:
+            existing = {}
+
+    existing[processing_key] = metadata_tambahan or {"processed_at": datetime.now().isoformat()}
+
+    tmp_file = f"{PROCESSED_IMAGES_FILE}.tmp_{os.getpid()}_{int(time.time()*1000)}"
+    try:
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2)
+        os.replace(tmp_file, PROCESSED_IMAGES_FILE)
+    except Exception as e:
+        print(f"[ERROR] Gagal menyimpan {processing_key} secara atomic: {e}")
+        if os.path.exists(tmp_file):
+            try:
+                os.remove(tmp_file)
+            except Exception:
+                pass
+
+def cek_key_di_firebase_history(processing_keys, max_retries=3):
+    """Cek apakah salah satu kunci foto sudah tercatat di Firebase history."""
+    processing_keys = set(processing_keys)
+    url = f"{FIREBASE_DB_URL}/history_log/cabai_01.json?auth={FIREBASE_API_KEY}"
+    for attempt in range(max_retries):
+        try:
+            res = requests.get(url, timeout=6)
+            res.raise_for_status()
+            data = res.json()
+            if not data or not isinstance(data, dict):
+                return False
+            for record in data.values():
+                if isinstance(record, dict):
+                    stored_keys = (record.get("processing_key"), record.get("id_foto"))
+                    if any(isinstance(key, str) and key in processing_keys for key in stored_keys):
+                        return True
+            return False
+        except Exception as e:
+            delay = 2 ** attempt
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+            else:
+                print(f"[WARN] Gagal verifikasi history Firebase ({e}). Mengandalkan state lokal.")
+    return False
+
+# Inisialisasi set processing_keys dari file state lokal saat startup
+_processed_keys = _muat_processed_images_lokal()
+if _processed_keys:
+    print(f"[INFO] Persistent image deduplication aktif: {len(_processed_keys)} foto tercatat di state lokal.")
+
 _waktu_pompa_terakhir = 0      # epoch detik saat pompa terakhir menyala
 _ack_terakhir = None           # id ack terakhir dari ESP32
 _iot_uptime_terakhir = None    # uptime_ms ESP32 terakhir yang terlihat
@@ -416,37 +513,110 @@ def baca_sensor(data_iot):
     return hasil, hilang
 
 
-def perbarui_cache_cnn():
-    """Cek foto terbaru di Supabase. Return True jika citra tersedia & valid."""
-    global _cache_cnn, _foto_terakhir_diproses
+def periksa_metadata_dan_analisis_citra():
+    """
+    Persistent Image Deduplication:
+    1. Ambil metadata file saja dari Supabase Storage.
+    2. Bentuk processing_key stabil: image_path + "|" + image_updated_at.
+    3. Cek apakah processing_key sudah ada di state lokal persisten (output/.processed_images.json)
+       atau di database history Firebase.
+    4. Jika sudah ditemukan:
+       - Jangan download gambar.
+       - Jangan jalankan preprocessing / model.
+       - Jangan buat record history baru.
+    5. Jika belum ditemukan:
+       - Download dan jalankan model CNN.
+       - Kembalikan status siap diproses ke database.
+    """
+    global _cache_cnn, _processed_keys
 
+    # 1. Ambil metadata file saja
     path_foto, info = cari_file_terbaru()
-    if path_foto is None:
-        return _cache_cnn is not None
+    if path_foto is None or info is None:
+        return _cache_cnn is not None, False, None
 
-    id_foto = f"{path_foto}|{info.get('created_at')}|{info.get('updated_at')}"
-    if id_foto == _foto_terakhir_diproses:
-        return True  # foto sama, gunakan cache
+    created_time = info.get("created_at") or ""
+    updated_time = info.get("updated_at") or created_time
+    processing_key = f"{path_foto}|{updated_time}"
+    legacy_processing_key = f"{path_foto}|{info.get('created_at')}|{info.get('updated_at')}"
+    candidate_keys = {processing_key, legacy_processing_key}
 
-    print(f"       -> Foto daun baru: '{path_foto}' (waktu: {info.get('created_at')})")
+    # 2 & 3. Cek di state lokal persisten
+    if candidate_keys.intersection(_processed_keys):
+        if processing_key not in _processed_keys:
+            _processed_keys.add(processing_key)
+            _simpan_processed_key_lokal_atomic(
+                processing_key,
+                {"detected": "legacy_local_state", "legacy_processing_key": legacy_processing_key}
+            )
+        if _cache_cnn is None or _cache_cnn.get("processing_key") != processing_key:
+            _cache_cnn = {
+                "path": path_foto,
+                "ts": waktu_foto_epoch(info),
+                "processing_key": processing_key
+            }
+        return True, False, processing_key
+
+    # Reuse CNN cache if the sensors or a Firebase write were not ready last scan.
+    if _cache_cnn is not None and _cache_cnn.get("processing_key") == processing_key:
+        return True, True, processing_key
+
+    # Cek di database history Firebase
+    if cek_key_di_firebase_history(candidate_keys):
+        _processed_keys.add(processing_key)
+        _simpan_processed_key_lokal_atomic(processing_key, {"detected": "firebase_history"})
+        _cache_cnn = {
+            "path": path_foto,
+            "ts": waktu_foto_epoch(info),
+            "processing_key": processing_key
+        }
+        return True, False, processing_key
+
+    ts_foto = waktu_foto_epoch(info)
+    if ts_foto is not None:
+        umur_jam = (time.time() - ts_foto) / 3600.0
+        if umur_jam > FOTO_MAKS_UMUR_JAM:
+            _processed_keys.add(processing_key)
+            _simpan_processed_key_lokal_atomic(
+                processing_key,
+                {"status": "expired_before_analysis", "age_hours": round(umur_jam, 2)}
+            )
+            _cache_cnn = {
+                "path": path_foto,
+                "ts": ts_foto,
+                "processing_key": processing_key
+            }
+            return True, False, processing_key
+
+    # 5. Jika belum pernah diproses sama sekali:
+    print(f"\n[DEDUPLICATION] Citra baru ditemukan! processing_key: '{processing_key}'")
+    print(f"       -> Mengunduh citra dari Supabase Storage...")
     pil_img = download_gambar(path_foto)
     if pil_img is None:
-        return _cache_cnn is not None
+        return _cache_cnn is not None, False, None
 
+    print(f"       -> Menjalankan inferensi model MobileNetV2...")
     label, conf, skor = analisis_citra_pil(pil_img)
-    _cache_cnn = {"label": label, "conf": conf, "skor": skor, "path": path_foto,
-                  "ts": waktu_foto_epoch(info), "baru": True}
-    _foto_terakhir_diproses = id_foto
+    _cache_cnn = {
+        "label": label,
+        "conf": conf,
+        "skor": skor,
+        "path": path_foto,
+        "ts": waktu_foto_epoch(info),
+        "baru": True,
+        "processing_key": processing_key
+    }
     print(f"       -> CNN MobileNetV2: {label} ({conf}%) -> Skor Gejala: {skor}%")
-    return True
+    return True, True, processing_key
 
 
 def evaluasi_citra():
-    """Memeriksa apakah citra daun di Supabase tersedia DAN berumur <= 24 jam terakhir."""
-    ada = perbarui_cache_cnn()
+    """Memeriksa apakah citra daun di Supabase tersedia, belum pernah diproses, DAN berumur <= 24 jam."""
+    ada, adalah_foto_baru, processing_key = periksa_metadata_dan_analisis_citra()
     if not ada or _cache_cnn is None:
         return {
             "valid": False,
+            "baru": False,
             "umur_jam": None,
             "foto": None,
             "alasan": "Belum ada file citra di bucket fusashield-image/cabai_01"
@@ -456,20 +626,33 @@ def evaluasi_citra():
     ts_foto = _cache_cnn.get("ts")
     umur_jam = ((sekarang - ts_foto) / 3600.0) if ts_foto else None
 
-    # Syarat mutlak: Foto harus berasal dari 24 jam terakhir
+    # Syarat mutlak 1: Foto harus berasal dari 24 jam terakhir
     if umur_jam is not None and umur_jam > FOTO_MAKS_UMUR_JAM:
         return {
             "valid": False,
+            "baru": False,
             "umur_jam": round(umur_jam, 2),
             "foto": _cache_cnn["path"],
             "alasan": f"Citra '{_cache_cnn['path']}' KADALUARSA (umur {umur_jam:.1f} jam > batas {FOTO_MAKS_UMUR_JAM:.0f} jam). Harap unggah foto daun cabai terbaru!"
         }
 
+    # Syarat mutlak 2: Foto tidak boleh foto yang sudah pernah diproses sebelumnya
+    if not adalah_foto_baru:
+        return {
+            "valid": False,
+            "baru": False,
+            "umur_jam": round(umur_jam, 2) if umur_jam else None,
+            "foto": _cache_cnn["path"],
+            "alasan": f"Citra '{_cache_cnn['path']}' sudah pernah diproses (processing_key terdaftar). Menunggu unggahan foto daun baru..."
+        }
+
     return {
         "valid": True,
+        "baru": True,
         "umur_jam": None if umur_jam is None else round(umur_jam, 2),
         "foto": _cache_cnn["path"],
-        "alasan": f"Citra valid dari 24 jam terakhir (umur {umur_jam:.1f} jam)" if umur_jam is not None else "Citra valid"
+        "processing_key": processing_key,
+        "alasan": f"Citra baru valid dari 24 jam terakhir (umur {umur_jam:.1f} jam)" if umur_jam is not None else "Citra baru valid"
     }
 
 
@@ -505,7 +688,7 @@ def evaluasi_iot(data_iot):
             _iot_uptime_terakhir, _iot_waktu_berubah, _iot_pernah_berubah = uptime, sekarang, False
         elif uptime != _iot_uptime_terakhir:
             _iot_uptime_terakhir, _iot_waktu_berubah, _iot_pernah_berubah = uptime, sekarang, True
-        
+
         diam = sekarang - _iot_waktu_berubah
         if diam > IOT_TIMEOUT_DETIK:
             hidup = "TIDAK_AKTIF"
@@ -556,7 +739,7 @@ def evaluasi_iot(data_iot):
 
 
 # ==========================================================
-# 6. REKOMENDASI AGRONOMI GROQ LLM (XAI)
+# 6. REKOMENDASI AGRONOMI CLOUDFLARE WORKERS AI (XAI)
 # ==========================================================
 SARAN_PER_KELAS = {
     "Healthy Leaf": "Daun terlihat sehat. Lanjutkan pemantauan rutin dan jaga drainase agar tanah tidak tergenang.",
@@ -572,7 +755,8 @@ SARAN_PER_KELAS = {
 def rekomendasi_template(k):
     """Cadangan tanpa LLM: teks tetap dari kelas CNN + keputusan fuzzy."""
     saran = SARAN_PER_KELAS.get(k["cnn_label"], "Pantau kondisi tanaman dan lakukan pemeriksaan langsung di lahan.")
-    return (f"Indikasi: {k['cnn_label']} (skor gejala {k['skor_gejala']}%, tingkat {k['tingkat']}). {saran} "
+    label_tampilan = label_to_indonesian(k["cnn_label"])
+    return (f"Indikasi: {label_tampilan} (skor gejala {k['skor_gejala']}%, tingkat {k['tingkat']}). {saran} "
             f"Pencegahan: hindari genangan, jaga aerasi tanah, dan pantau penyebaran gejala visual di lahan.")
 
 
@@ -601,49 +785,68 @@ def _dosis_dalam_teks_valid(teks, dosis_ml):
     return True
 
 
+def panggil_cloudflare_api(model_name, payload_data):
+    """Panggil Cloudflare Workers AI lewat REST API (endpoint /ai/run/{model})."""
+    url = f"{CF_API_BASE}/accounts/{CF_ACCOUNT_ID}/ai/run/{model_name}"
+    body = {
+        "messages": [
+            {"role": "system", "content": PROMPT_SISTEM},
+            {"role": "user", "content": json.dumps(payload_data, ensure_ascii=False)},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 400,
+    }
+    r = requests.post(
+        url,
+        json=body,
+        timeout=LLM_TIMEOUT_DETIK,
+        headers={
+            "Authorization": f"Bearer {CF_API_TOKEN}",
+            "Content-Type": "application/json",
+        },
+    )
+    r.raise_for_status()
+    res_json = r.json()
+
+    if res_json.get("success") is False:
+        raise RuntimeError(f"Cloudflare error: {res_json.get('errors')}")
+
+    hasil = res_json.get("result") or {}
+    teks = hasil.get("response")
+
+    # Beberapa model memakai format OpenAI-compatible (choices[...])
+    if not teks and hasil.get("choices"):
+        teks = hasil["choices"][0].get("message", {}).get("content", "")
+
+    if not isinstance(teks, str):
+        return ""
+    return teks.strip()
+
+
 def panggil_llm(k):
-    """Panggil Groq LLM dengan auto-fallback tier 1 (70b) -> tier 2 (8b) -> template offline."""
-    if not GROQ_API_KEY:
-        return rekomendasi_template(k), "template (GROQ_API_KEY belum diset di .env)"
-
-    model_kandidat = [GROQ_MODEL]
-    if GROQ_MODEL_FALLBACK and GROQ_MODEL_FALLBACK != GROQ_MODEL:
-        model_kandidat.append(GROQ_MODEL_FALLBACK)
-
+    """Panggil LLM: Cloudflare Workers AI (model utama -> model cadangan) -> Template Offline."""
     riwayat_error = []
-    for model_name in model_kandidat:
-        payload = {
-            "model": model_name,
-            "temperature": 0.3,
-            "max_tokens": 400,
-            "messages": [
-                {"role": "system", "content": PROMPT_SISTEM},
-                {"role": "user", "content": json.dumps(k, ensure_ascii=False)},
-            ],
-        }
-        try:
-            r = requests.post(
-                GROQ_URL,
-                json=payload,
-                timeout=LLM_TIMEOUT_DETIK,
-                headers={
-                    "Authorization": f"Bearer {GROQ_API_KEY}",
-                    "Content-Type": "application/json"
-                }
-            )
-            r.raise_for_status()
-            teks = (r.json()["choices"][0]["message"]["content"] or "").strip()
-            if not teks:
-                riwayat_error.append(f"{model_name}: teks kosong")
-                continue
-            if not _dosis_dalam_teks_valid(teks, k["dosis_fuzzy_ml"]):
-                riwayat_error.append(f"{model_name}: dosis berbeda")
-                continue
-            return teks[:1200], f"groq:{model_name}"
-        except Exception as e:
-            riwayat_error.append(f"{model_name}: {type(e).__name__}")
 
-    alasan = ", ".join(riwayat_error) if riwayat_error else "tidak diketahui"
+    if CF_ACCOUNT_ID and CF_API_TOKEN:
+        cf_models = [CF_MODEL]
+        if CF_MODEL_FALLBACK and CF_MODEL_FALLBACK != CF_MODEL:
+            cf_models.append(CF_MODEL_FALLBACK)
+
+        for m_name in cf_models:
+            try:
+                teks = panggil_cloudflare_api(m_name, k)
+                if not teks:
+                    riwayat_error.append(f"cloudflare:{m_name} kosong")
+                    continue
+                if not _dosis_dalam_teks_valid(teks, k["dosis_fuzzy_ml"]):
+                    riwayat_error.append(f"cloudflare:{m_name} dosis berbeda")
+                    continue
+                return teks[:1200], f"cloudflare:{m_name}"
+            except Exception as e:
+                riwayat_error.append(f"cloudflare:{m_name} ({type(e).__name__})")
+
+    # Fallback terakhir ke template jika Cloudflare gagal / belum dikonfigurasi
+    alasan = ", ".join(riwayat_error) if riwayat_error else "CF_ACCOUNT_ID / CF_API_TOKEN belum diset"
     return rekomendasi_template(k), f"template (fallback offline: {alasan})"
 
 
@@ -727,12 +930,12 @@ def jalankan_pipeline_cloud(default_hst=41):
         print(f"| Telemetri IoT : {status_iot_txt}")
         for al in iot["alasan"]:
             print(f"|                 - {al}")
-        
-        status_foto_txt = "VALID (<= 24 Jam Terakhir)" if citra["valid"] else "TIDAK VALID / KADALUARSA"
+
+        status_foto_txt = "VALID (Foto Baru <= 24 Jam)" if citra["valid"] else ("SUDAH DIPROSES / MENUNGGU FOTO BARU" if not citra.get("baru", True) else "TIDAK VALID / KADALUARSA")
         print(f"| Citra Daun    : {status_foto_txt}")
         print(f"|                 - {citra['alasan']}")
         print("+" + "-" * 70 + "+")
-        print("[INFO] Analisis dan pompa ditangguhkan sampai data IoT lengkap dan foto baru (<= 24 jam) tersedia. Pindai ulang 10s...\n")
+        print("[INFO] Analisis dan pompa ditangguhkan sampai data IoT lengkap dan ada foto baru yang diunggah. Pindai ulang 10s...\n")
         return False
 
     # JIKA KEDUANYA LENGKAP: EKSEKUSI PIPELINE DENGAN DATA 100% NYATA
@@ -776,9 +979,11 @@ def jalankan_pipeline_cloud(default_hst=41):
 
     waktu_skrg = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # --- (6) REKOMENDASI AGRONOMI GROQ LLM (DATA RIIL) ---
+    # --- (6) REKOMENDASI AGRONOMI CLOUDFLARE WORKERS AI (DATA RIIL) ---
+    # LLM hanya memberi saran; dosis & pompa tetap dari fuzzy di atas.
     rek_llm, sumber_llm = rekomendasi_untuk({
-        "cnn_label": cnn["label"], "cnn_confidence": cnn["conf"], "skor_gejala": cnn["skor"],
+        "cnn_label": cnn["label"], "cnn_label_display": label_to_indonesian(cnn["label"]),
+        "cnn_confidence": cnn["conf"], "skor_gejala": cnn["skor"],
         "tingkat": tingkat, "dosis_fuzzy_ml": dosis_ml, "durasi_detik": durasi_detik,
         "status_mitigasi": status_mitigasi, "fase": fase_hst, "hst": hst_tanaman,
         "suhu_c": temperature, "kelembapan_tanah_persen": soil_moisture,
@@ -801,7 +1006,8 @@ def jalankan_pipeline_cloud(default_hst=41):
         main_payload["last_pump_epoch"] = int(sekarang)
 
     fuzzy_payload = {
-        "cnn_label": cnn["label"],
+        "cnn_label": label_to_indonesian(cnn["label"]),
+        "cnn_label_original": cnn["label"],
         "cnn_confidence": cnn["conf"],
         "cnn_symptom_score": cnn["skor"],
         "status_iot": "AKTIF",
@@ -816,6 +1022,7 @@ def jalankan_pipeline_cloud(default_hst=41):
         "fase_hst": fase_hst,
         "pump_command": pump_cmd,
         "foto_sumber": cnn["path"],
+        "processing_key": cnn.get("processing_key"),
         "foto_umur_jam": None if umur_jam is None else round(umur_jam, 2),
         "mode_keputusan": "DATA_RIIL_IOT+CNN",
         "tingkat_dosis": tingkat,
@@ -831,26 +1038,63 @@ def jalankan_pipeline_cloud(default_hst=41):
     url_cmd = f"{FIREBASE_DB_URL}{NODE_PATH}/command.json?auth={FIREBASE_API_KEY}"
     url_log = f"{FIREBASE_DB_URL}/history_log/cabai_01.json?auth={FIREBASE_API_KEY}"
 
-    try:
-        if main_payload:
-            requests.patch(url_main, json=main_payload, timeout=8)
-        requests.patch(url_fuzzy, json=fuzzy_payload, timeout=8)
-        if foto_baru or menyalakan:
-            requests.post(url_log, json=fuzzy_payload, timeout=8)
-        if menyalakan and durasi_detik > 0:
-            perintah = {
-                "id": int(sekarang),
-                "dosis_ml": dosis_ml,
-                "durasi_detik": durasi_detik,
-                "issued_at": int(sekarang),
-                "status_mitigasi": status_mitigasi,
-            }
-            requests.put(url_cmd, json=perintah, timeout=8)
-            _waktu_pompa_terakhir = sekarang
-            print(f"       -> [PERINTAH] id {perintah['id']} dikirim ke ESP32. Menunggu ack...")
-        print("       -> [FIREBASE] fuzzy_output diperbarui dengan data nyata.")
-    except Exception as e:
-        print(f"       -> [PERINGATAN] Gagal menulis ke Firebase ({e}). Hasil di atas tetap valid.")
+    # Pengiriman database dengan retry backoff agar tidak menandai sukses jika koneksi gagal
+    max_db_retries = 3
+    db_sukses = False
+
+    for attempt in range(max_db_retries):
+        try:
+            # 1. Update node latest / monitoring
+            if main_payload:
+                r_main = requests.patch(url_main, json=main_payload, timeout=8)
+                r_main.raise_for_status()
+
+            # Node latest fuzzy_output (PUT/PATCH tanpa merusak history)
+            r_fuzzy = requests.put(url_fuzzy, json=fuzzy_payload, timeout=8)
+            r_fuzzy.raise_for_status()
+
+            # 2. Append history baru dengan POST (auto-generated ID, append-only, history lama tidak ditimpa)
+            if foto_baru or menyalakan:
+                r_log = requests.post(url_log, json=fuzzy_payload, timeout=8)
+                r_log.raise_for_status()
+
+            # 3. Perintah aktuasi pompa jika kondisi terpenuhi
+            if menyalakan and durasi_detik > 0:
+                perintah = {
+                    "id": int(sekarang),
+                    "dosis_ml": dosis_ml,
+                    "durasi_detik": durasi_detik,
+                    "issued_at": int(sekarang),
+                    "status_mitigasi": status_mitigasi,
+                }
+                r_cmd = requests.put(url_cmd, json=perintah, timeout=8)
+                r_cmd.raise_for_status()
+                _waktu_pompa_terakhir = sekarang
+                print(f"       -> [PERINTAH] id {perintah['id']} dikirim ke ESP32. Menunggu ack...")
+
+            db_sukses = True
+            print("       -> [FIREBASE] fuzzy_output diperbarui & history dicatat.")
+            break
+        except Exception as e:
+            delay = 2 ** attempt
+            print(f"       -> [RETRY {attempt+1}/{max_db_retries}] Gagal menulis ke Firebase ({e}). Tunggu {delay}s...")
+            time.sleep(delay)
+
+    # 4. Simpan processing_key ke state lokal SECARA ATOMIC HANYA JIKA DATABASE SUKSES
+    current_key = cnn.get("processing_key")
+    if db_sukses and current_key:
+        _processed_keys.add(current_key)
+        _simpan_processed_key_lokal_atomic(current_key, {
+            "path": cnn["path"],
+            "label": cnn["label"],
+            "skor": cnn["skor"],
+            "dosis_ml": dosis_ml,
+            "processed_at": waktu_skrg
+        })
+        print(f"       -> [PERSISTENCE] processing_key '{current_key}' berhasil disimpan ke state lokal.")
+    elif not db_sukses:
+        print("       -> [GAGAL] Database tidak merespons, gambar TIDAK ditandai selesai agar dapat diproses ulang.")
+
     return True
 
 

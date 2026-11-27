@@ -1,0 +1,108 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R /F2 8 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 2728 >>
+stream
+BT /F2 20 Tf 54 790 Td (ALUR SISTEM FUSASHIELD) Tj ET
+BT /F1 10 Tf 54 762 Td (Versi FastAPI - dari sensor dan citra hingga keputusan pompa) Tj ET
+BT /F2 12 Tf 54 734 Td (1. Server API dan worker controller) Tj ET
+BT /F1 10 Tf 54 715 Td (Program dijalankan dengan python fusashield_api.py. FastAPI/Uvicorn melayani endpoint) Tj ET
+BT /F1 10 Tf 54 700 Td (dashboard, lalu saat aplikasi aktif sebuah worker latar belakang menjalankan pipeline) Tj ET
+BT /F1 10 Tf 54 685 Td (fusashield_main.py setiap 10 detik. Jalankan satu server saja; jangan jalankan) Tj ET
+BT /F1 10 Tf 54 670 Td (fusashield_main.py bersamaan agar controller tidak berjalan dua kali.) Tj ET
+BT /F1 10 Tf 54 655 Td (Request API tetap dapat dilayani paralel: endpoint sinkron diproses melalui thread pool,) Tj ET
+BT /F1 10 Tf 54 640 Td (termasuk pengiriman perintah pompa ke Firebase. Dashboard menggunakan endpoint yang sama) Tj ET
+BT /F1 10 Tf 54 625 Td (seperti sebelumnya, misalnya GET /api/monitoring.) Tj ET
+BT /F2 12 Tf 54 600 Td (2. Sensor IoT masuk melalui Firebase) Tj ET
+BT /F1 10 Tf 54 581 Td (ESP32 mengirim suhu, kelembapan tanah, kelembapan udara, uptime_ms, dan bila tersedia) Tj ET
+BT /F1 10 Tf 54 566 Td (HST ke Firebase. Sistem memeriksa kelengkapan data, validitas probe tanah, serta) Tj ET
+BT /F1 10 Tf 54 551 Td (perubahan uptime untuk memastikan ESP32 aktif. Data sensor tidak valid atau tidak) Tj ET
+BT /F1 10 Tf 54 536 Td (lengkap membuat sistem STANDBY.) Tj ET
+BT /F2 12 Tf 54 511 Td (3. Foto daun masuk melalui Supabase) Tj ET
+BT /F1 10 Tf 54 492 Td (Aplikasi mengunggah foto ke bucket fusashield-image, folder cabai_01. Worker memeriksa) Tj ET
+BT /F1 10 Tf 54 477 Td (metadata foto terbaru secara berkala. Foto harus berumur paling lama 24 jam dan belum) Tj ET
+BT /F1 10 Tf 54 462 Td (pernah diproses agar dapat menjadi input analisis baru.) Tj ET
+BT /F2 12 Tf 54 437 Td (4. Deduplikasi dan analisis citra) Tj ET
+BT /F1 10 Tf 54 418 Td (Sebelum mengunduh foto, sistem mengecek kunci pemrosesan pada state lokal baru, state) Tj ET
+BT /F1 10 Tf 54 403 Td (lama .last_processed_photo.json, dan riwayat Firebase. Foto yang sudah dikenal dilewati;) Tj ET
+BT /F1 10 Tf 54 388 Td (foto kedaluwarsa juga ditolak sebelum unduh dan inferensi. Jika sensor atau Firebase) Tj ET
+BT /F1 10 Tf 54 373 Td (belum siap setelah CNN berjalan, hasil CNN di-cache agar model tidak mengulang inferensi) Tj ET
+BT /F1 10 Tf 54 358 Td (untuk foto yang sama.) Tj ET
+BT /F1 10 Tf 54 343 Td (Foto baru yang valid diubah ke RGB dan ukuran 224 x 224, lalu MobileNetV2 menghasilkan) Tj ET
+BT /F1 10 Tf 54 328 Td (kelas prediksi, confidence, dan skor gejala. Nama kelas berasal dari kelas model yang) Tj ET
+BT /F1 10 Tf 54 313 Td (tersimpan di class_names.json.) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R /F2 8 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 3197 >>
+stream
+BT /F2 20 Tf 54 790 Td (DARI ANALISIS KE DASHBOARD) Tj ET
+BT /F1 10 Tf 54 762 Td (Kelanjutan alur operasional) Tj ET
+BT /F2 12 Tf 54 734 Td (5. Gerbang kesiapan) Tj ET
+BT /F1 10 Tf 54 715 Td (Pipeline hanya melanjutkan keputusan jika sensor IoT lengkap dan aktif serta citra baru) Tj ET
+BT /F1 10 Tf 54 700 Td (valid. Jika syarat belum terpenuhi, status tetap STANDBY dan pompa tidak diperintah;) Tj ET
+BT /F1 10 Tf 54 685 Td (worker terus memeriksa data dan menunggu kondisi terpenuhi atau unggahan foto baru.) Tj ET
+BT /F2 12 Tf 54 660 Td (6. Fuzzy menghitung mitigasi) Tj ET
+BT /F1 10 Tf 54 641 Td (Mesin fuzzy menggabungkan skor gejala CNN, suhu, kelembapan tanah, kelembapan udara, dan) Tj ET
+BT /F1 10 Tf 54 626 Td (HST tanaman. Hasilnya menentukan dosis dan status mitigasi. Dosis di bawah 10 ml) Tj ET
+BT /F1 10 Tf 54 611 Td (berstatus aman; tingkat dosis dimulai dari preventif 10 ml, waspada 35 ml, dan kritis 70) Tj ET
+BT /F1 10 Tf 54 596 Td (ml.) Tj ET
+BT /F2 12 Tf 54 571 Td (7. Keputusan dan pengiriman pompa) Tj ET
+BT /F1 10 Tf 54 552 Td (Pompa otomatis hanya diperintah ON bila hasil fuzzy meminta penyiraman dan cooldown) Tj ET
+BT /F1 10 Tf 54 537 Td (selesai. Durasi dihitung dari dosis dibagi 5. Perintah berisi ID, dosis, durasi, waktu,) Tj ET
+BT /F1 10 Tf 54 522 Td (dan status mitigasi; ESP32 menerima perintah lewat Firebase dan dapat mengirim ACK.) Tj ET
+BT /F2 12 Tf 54 497 Td (8. Penyimpanan hasil dan tampilan dashboard) Tj ET
+BT /F1 10 Tf 54 478 Td (Worker menyimpan telemetri hasil CNN dan fuzzy di monitoring/cabai_01/fuzzy_output serta) Tj ET
+BT /F1 10 Tf 54 463 Td (menambahkan log di history_log/cabai_01. FastAPI mengambil data Firebase dan menyajikan) Tj ET
+BT /F1 10 Tf 54 448 Td (gabungannya melalui GET /api/monitoring; endpoint terpisah tersedia untuk sensor, CNN,) Tj ET
+BT /F1 10 Tf 54 433 Td (fuzzy, saran, dan riwayat. URL foto Supabase juga disertakan.) Tj ET
+BT /F1 10 Tf 54 418 Td (Tombol pompa manual memakai POST /api/pump/trigger dan merupakan jalur terpisah dari) Tj ET
+BT /F1 10 Tf 54 403 Td (keputusan otomatis fuzzy.) Tj ET
+BT /F2 12 Tf 54 378 Td (Naskah singkat untuk presentasi) Tj ET
+BT /F1 9 Tf 54 359 Td ("ESP32 mengirim telemetri ke Firebase dan aplikasi mengunggah foto ke Supabase. Worker) Tj ET
+BT /F1 9 Tf 54 346 Td (memvalidasi sensor dan foto, menghindari pemrosesan ulang, lalu CNN memberi skor gejala. Jika) Tj ET
+BT /F1 9 Tf 54 333 Td (semua syarat siap, fuzzy menghitung dosis dan durasi. Setelah cooldown terpenuhi, perintah) Tj ET
+BT /F1 9 Tf 54 320 Td (dikirim ke ESP32. Hasil analisis, sensor, foto, dan status pompa disediakan ke dashboard melalui) Tj ET
+BT /F1 9 Tf 54 307 Td (FastAPI.") Tj ET
+BT /F2 12 Tf 54 284 Td (Catatan sebelum demo) Tj ET
+BT /F1 10 Tf 54 265 Td (Konfigurasi cooldown aktif saat ini 5 detik, sementara komentar kode menyebut 12 jam.) Tj ET
+BT /F1 10 Tf 54 250 Td (Pastikan nilai yang dikehendaki sebelum demonstrasi.) Tj ET
+BT /F1 10 Tf 54 235 Td (Jalankan dengan python fusashield_api.py; dokumentasi API ada di) Tj ET
+BT /F1 10 Tf 54 220 Td (http://localhost:5000/docs. Hindari menjalankan beberapa worker Uvicorn karena setiap) Tj ET
+BT /F1 10 Tf 54 205 Td (proses akan memulai controller.) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+8 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000263 00000 n 
+0000003043 00000 n 
+0000003179 00000 n 
+0000006428 00000 n 
+0000006498 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+6573
+%%EOF

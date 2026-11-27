@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Flowchart Sistem FusaShield (Fuzzy Sugeno Orde 0)</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+      margin: 0;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .header-box {
+      text-align: center;
+      margin-bottom: 20px;
+      max-width: 900px;
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      color: #1e3a8a;
+      font-size: 26px;
+    }
+    p {
+      margin: 0 0 16px 0;
+      color: #475569;
+      font-size: 14px;
+    }
+    .btn-container {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .btn-primary {
+      background-color: #2563eb;
+      color: white;
+    }
+    .btn-primary:hover {
+      background-color: #1d4ed8;
+    }
+    .btn-secondary {
+      background-color: #0f766e;
+      color: white;
+    }
+    .btn-secondary:hover {
+      background-color: #115e59;
+    }
+    .card {
+      background: white;
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+      padding: 30px;
+      max-width: 1000px;
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #e2e8f0;
+      overflow-x: auto;
+    }
+    #mermaid-container {
+      display: flex;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header-box">
+    <h1>DIAGRAM ALUR SISTEM FUSASHIELD</h1>
+    <p>Sistem Mitigasi Presisi Layu Fusarium Berbasis IoT, CNN MobileNetV2, <strong>Fuzzy Sugeno (Orde 0)</strong> & Groq LLM</p>
+    <div class="btn-container">
+      <button class="btn btn-primary" onclick="downloadSVG()">📥 Download Format SVG (Vector HD)</button>
+      <button class="btn btn-secondary" onclick="downloadPNG()">📥 Download Format PNG (Gambar Slide)</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="mermaid-container">
+      <pre class="mermaid">
+flowchart TD
+    subgraph SENSING ["1. AKUISISI DATA SENSORIK & CITRA APLIKASI"]
+        A["Sensor IoT (ESP32)<br/>• Suhu Udara (°C)<br/>• Kelembapan Tanah (%)<br/>• RH Udara (%)"] -->|Kirim JSON| FB[("Firebase RTDB")]
+        B["Aplikasi FusaShield<br/>(Petani Foto Daun 1 Hari Sekali)"] -->|Unggah Foto| SB[("Supabase Storage")]
+    end
+
+    subgraph PREPROCESS ["2. PREPROCESSING & COMPUTER VISION"]
+        SB -->|Cek Umur <= 24 Jam| C["Validasi Foto & Rotasi EXIF"]
+        C --> D["Resize ke 224x224 RGB<br/>Normalisasi & Batching"]
+        D --> E["Model CNN (MobileNetV2)<br/>Ekstraksi Fitur Citra"]
+        E --> F["Skor Gejala Visual (%)<br/>((1 - P_sehat)*60 + P_klorosis*40)"]
+    end
+
+    subgraph GATEKEEPER ["3. GERBANG VALIDASI KELAYAKAN"]
+        FB --> G{"Validasi Kelengkapan:<br/>IoT Lengkap + Foto Aplikasi <= 24 Jam?"}
+        F --> G
+        G -- TIDAK --> H["Mode Standby (Pompa Kunci OFF)"]
+        G -- YA --> I["Fusi Multimodal: IoT + Skor Visual"]
+    end
+
+    subgraph FUZZY ["4. MESIN KEPUTUSAN FUZZY SUGENO (ORDE 0)"]
+        I --> J["Fuzzifikasi Input (Trapesium):<br/>• RH Udara [Rendah, Sedang, Tinggi]<br/>• Tanah [Kering, Lembap, Basah]<br/>• Suhu [Dingin, Optimal, Panas]<br/>• Gejala Citra [Ringan, Sedang, Berat]"]
+        J --> K["Evaluasi Rule Base (MIN-MAX):<br/>r_aman, r_preventif, r_waspada, r_kritis"]
+        K --> L["Defuzzifikasi Weighted Average (Sugeno):<br/>Σ(r_i * z_i) / Σ(r_i)<br/>z = {0ml, 20ml, 50ml, 100ml}"]
+        L --> M["Konversi Durasi Pompa (detik)<br/>+ Proteksi Cooldown 12 Jam"]
+    end
+
+    subgraph XAI ["5. EXPLAINABLE AI & EKSEKUSI"]
+        M --> N["Groq LLM (Llama 3.3 70B)<br/>XAI Narasi Agronomi Ilmiah"]
+        N --> O[("Update Hasil ke Firebase")]
+        O --> P["Web Dashboard Vercel (Monitoring Petani)"]
+        O --> Q["Aktuator Pompa ESP32 (Dosis Trichoderma Cair)"]
+    end
+      </pre>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+
+    function downloadSVG() {
+      const svg = document.querySelector('#mermaid-container svg');
+      if (!svg) { alert("Tunggu diagram selesai dimuat!"); return; }
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      const svgUrl = URL.createObjectURL(svgBlob);
+      const downloadLink = document.createElement('a');
+      downloadLink.href = svgUrl;
+      downloadLink.download = 'flowchart_fusashield_sugeno.svg';
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+    }
+
+    function downloadPNG() {
+      const svg = document.querySelector('#mermaid-container svg');
+      if (!svg) { alert("Tunggu diagram selesai dimuat!"); return; }
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = function () {
+        const scale = 2;
+        canvas.width = (svg.clientWidth || 900) * scale;
+        canvas.height = (svg.clientHeight || 1200) * scale;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        const pngUrl = canvas.toDataURL('image/png');
+        const downloadLink = document.createElement('a');
+        downloadLink.href = pngUrl;
+        downloadLink.download = 'flowchart_fusashield_sugeno.png';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+      };
+      img.src = url;
+    }
+  </script>
+</body>
+</html>
