@@ -164,7 +164,9 @@ def get_monitoring():
             "humidity_air": iot_data.get("humidity") if iot_data else None,
             "hst": iot_data.get("hst", 41) if iot_data else 41,
             "uptime_ms": iot_data.get("uptime_ms") if iot_data else None,
-            "soil_valid": iot_data.get("soil_valid", True) if iot_data else True
+            "soil_valid": iot_data.get("soil_valid", True) if iot_data else True,
+            "pump_status": iot_data.get("pump_status", "OFF") if iot_data else "OFF",
+            "mixer_status": iot_data.get("mixer_status", "OFF") if iot_data else "OFF"
         },
         "system_readiness": {
             "is_ready": (
@@ -236,6 +238,8 @@ def get_iot():
         "hst": iot_data.get("hst", 41),
         "soil_valid": iot_data.get("soil_valid", True),
         "uptime_ms": iot_data.get("uptime_ms"),
+        "pump_status": iot_data.get("pump_status", "OFF"),
+        "mixer_status": iot_data.get("mixer_status", "OFF"),
         "ack": iot_data.get("ack")
     }
 

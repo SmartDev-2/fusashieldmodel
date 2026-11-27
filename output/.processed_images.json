@@ -1,0 +1,97 @@
+{
+  "cabai_01/1794938832981-mobile_1f83bd.jpg|2026-11-17T18:07:13.952Z": {
+    "detected": "legacy_local_state",
+    "legacy_processing_key": "cabai_01/1794938832981-mobile_1f83bd.jpg|2026-11-17T18:07:13.952Z|2026-11-17T18:07:13.952Z"
+  },
+  "cabai_01/1795701803955-mobile_a44f59.jpg|2026-11-26T14:03:25.561Z": {
+    "path": "cabai_01/1795701803955-mobile_a44f59.jpg",
+    "label": "Healthy Leaf",
+    "skor": 20.02,
+    "dosis_ml": 0.0,
+    "processed_at": "2026-11-26 21:03:31"
+  },
+  "cabai_01/1795701821238-mobile_1aaaae.jpg|2026-11-26T14:03:42.414Z": {
+    "path": "cabai_01/1795701821238-mobile_1aaaae.jpg",
+    "label": "Healthy Leaf",
+    "skor": 30.62,
+    "dosis_ml": 47.33,
+    "processed_at": "2026-11-26 21:03:54"
+  },
+  "cabai_01/1795702004184-mobile_4fc655.jpg|2026-11-26T14:06:45.002Z": {
+    "path": "cabai_01/1795702004184-mobile_4fc655.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.14,
+    "dosis_ml": 50.48,
+    "processed_at": "2026-11-26 21:06:53"
+  },
+  "cabai_01/1795702997906-mobile_a2a2ac.jpg|2026-11-26T14:23:18.860Z": {
+    "path": "cabai_01/1795702997906-mobile_a2a2ac.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.14,
+    "dosis_ml": 50.47,
+    "processed_at": "2026-11-26 21:23:22"
+  },
+  "cabai_01/1795703347597-mobile_65ee9d.jpg|2026-11-26T14:29:08.095Z": {
+    "path": "cabai_01/1795703347597-mobile_65ee9d.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.16,
+    "dosis_ml": 50.53,
+    "processed_at": "2026-11-26 21:29:11"
+  },
+  "cabai_01/1795704498654-mobile_49bcb7.jpg|2026-11-26T14:48:18.925Z": {
+    "path": "cabai_01/1795704498654-mobile_49bcb7.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.14,
+    "dosis_ml": 50.58,
+    "processed_at": "2026-11-26 21:51:37"
+  },
+  "cabai_01/1795704742275-mobile_97f499.jpg|2026-11-26T14:52:23.137Z": {
+    "path": "cabai_01/1795704742275-mobile_97f499.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.16,
+    "dosis_ml": 50.67,
+    "processed_at": "2026-11-26 21:55:59"
+  },
+  "cabai_01/1795705112182-mobile_aedd3e.jpg|2026-11-26T14:58:32.639Z": {
+    "path": "cabai_01/1795705112182-mobile_aedd3e.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.14,
+    "dosis_ml": 42.73,
+    "processed_at": "2026-11-26 21:58:39"
+  },
+  "cabai_01/1795707185538-mobile_d3df48.jpg|2026-11-26T15:33:06.852Z": {
+    "path": "cabai_01/1795707185538-mobile_d3df48.jpg",
+    "label": "Healthy Leaf",
+    "skor": 33.16,
+    "dosis_ml": 41.75,
+    "processed_at": "2026-11-26 22:33:11"
+  },
+  "cabai_01/1795708896978-mobile_86096a.jpg|2026-11-26T16:01:37.729Z": {
+    "path": "cabai_01/1795708896978-mobile_86096a.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.14,
+    "dosis_ml": 50.53,
+    "processed_at": "2026-11-26 23:01:41"
+  },
+  "cabai_01/1795708994921-mobile_a1c42b.jpg|2026-11-26T16:03:15.601Z": {
+    "path": "cabai_01/1795708994921-mobile_a1c42b.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.16,
+    "dosis_ml": 50.58,
+    "processed_at": "2026-11-26 23:03:18"
+  },
+  "cabai_01/1795709257847-mobile_0ff9e3.jpg|2026-11-26T16:07:38.831Z": {
+    "path": "cabai_01/1795709257847-mobile_0ff9e3.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.14,
+    "dosis_ml": 50.49,
+    "processed_at": "2026-11-26 23:07:41"
+  },
+  "cabai_01/1795709545763-mobile_9a9d35.jpg|2026-11-26T16:12:26.174Z": {
+    "path": "cabai_01/1795709545763-mobile_9a9d35.jpg",
+    "label": "Cercospora Leaf Spot",
+    "skor": 60.16,
+    "dosis_ml": 50.54,
+    "processed_at": "2026-11-26 23:12:34"
+  }
+}

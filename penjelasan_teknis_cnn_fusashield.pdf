@@ -1,0 +1,311 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R 9 0 R 11 0 R 13 0 R] /Count 6 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 15 0 R /F2 16 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 2320 >>
+stream
+0.08 0.31 0.50 rg
+54 818 487 3 re f
+0 0 0 rg
+BT /F2 18 Tf 58 789 Td (PENJELASAN TEKNIS CNN FUSASHIELD) Tj ET
+BT /F1 9 Tf 58 764 Td (Alur citra, preprocessing, MobileNetV2, dan keluaran klasifikasi) Tj ET
+BT /F2 12 Tf 58 743 Td (Ringkasan model yang benar-benar digunakan) Tj ET
+BT /F1 9 Tf 58 725 Td (Model tersimpan bernama FusaShield_MobileNetV2. Inputnya \(224, 224, 3\), backbone-nya) Tj ET
+BT /F1 9 Tf 58 712 Td (MobileNetV2 standar 1.0 dengan bobot awal ImageNet, dan kepala klasifikasinya memiliki enam) Tj ET
+BT /F1 9 Tf 58 699 Td (output. Backbone dibekukan saat training; bagian dense di akhir dilatih untuk kelas daun cabai.) Tj ET
+BT /F1 9 Tf 58 686 Td (Model memiliki 2,422,726 parameter: 2,257,984 parameter backbone non-trainable dan 164,742) Tj ET
+BT /F1 9 Tf 58 673 Td (parameter trainable pada kepala klasifikasi. Ini adalah model klasifikasi satu label per) Tj ET
+BT /F1 9 Tf 58 660 Td (gambar, bukan model segmentasi yang mewarnai lokasi penyakit pada daun.) Tj ET
+BT /F2 12 Tf 58 641 Td (Alur besar) Tj ET
+BT /F1 9 Tf 58 623 Td (Supabase Storage -> pilih foto terbaru -> download -> koreksi orientasi EXIF -> RGB -> resize) Tj ET
+BT /F1 9 Tf 58 610 Td (224x224 -> array angka -> normalisasi di dalam model -> MobileNetV2 -> feature map -> pooling) Tj ET
+BT /F1 9 Tf 58 597 Td (-> dense -> softmax 6 kelas -> confidence dan skor gejala -> diteruskan ke sistem fuzzy.) Tj ET
+BT /F2 12 Tf 58 578 Td (1. Pemilihan dan akuisisi foto) Tj ET
+BT /F1 9 Tf 58 560 Td (Worker mencari metadata foto terbaru pada bucket dan folder yang dikonfigurasi. Untuk mencegah) Tj ET
+BT /F1 9 Tf 58 547 Td (analisis berulang, controller membentuk processing key dari path dan waktu update, lalu) Tj ET
+BT /F1 9 Tf 58 534 Td (membandingkannya dengan state lokal baru, state lokal lama, dan riwayat Firebase. Foto yang) Tj ET
+BT /F1 9 Tf 58 521 Td (sudah dikenali dilewati.) Tj ET
+BT /F1 9 Tf 58 508 Td (Foto yang lebih lama dari 24 jam ditolak sebelum download dan inferensi. Jika CNN sudah) Tj ET
+BT /F1 9 Tf 58 495 Td (dijalankan tetapi sensor atau penulisan hasil belum siap, hasil CNN dapat dipakai ulang dari) Tj ET
+BT /F1 9 Tf 58 482 Td (cache untuk foto yang sama.) Tj ET
+0.65 0.68 0.70 RG
+54 38 m 541 38 l S
+0 0 0 rg
+BT /F1 8 Tf 54 25 Td (FusaShield - penjelasan teknis CNN) Tj ET
+BT /F1 8 Tf 520 25 Td (1 / 6) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 15 0 R /F2 16 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 2659 >>
+stream
+0.08 0.31 0.50 rg
+54 818 487 3 re f
+0 0 0 rg
+BT /F2 18 Tf 58 789 Td (TAHAP PREPROCESSING CITRA) Tj ET
+BT /F1 9 Tf 58 764 Td (Dari file gambar menjadi tensor input CNN) Tj ET
+BT /F2 12 Tf 58 743 Td (2. Decode, orientasi, kanal warna, dan resize) Tj ET
+BT /F1 9 Tf 58 725 Td (File diunduh dan dibuka sebagai gambar. ImageOps.exif_transpose memperbaiki orientasi) Tj ET
+BT /F1 9 Tf 58 712 Td (berdasarkan metadata kamera, sehingga foto yang disimpan dengan flag rotasi tetap tampil pada) Tj ET
+BT /F1 9 Tf 58 699 Td (arah yang semestinya.) Tj ET
+BT /F1 9 Tf 58 686 Td (Citra dikonversi ke RGB. Model mengharapkan tiga kanal: R \(merah\), G \(hijau\), dan B \(biru\).) Tj ET
+BT /F1 9 Tf 58 673 Td (Jika sumber memiliki alpha/transparansi atau grayscale, konversi menghasilkan format tiga kanal) Tj ET
+BT /F1 9 Tf 58 660 Td (yang konsisten.) Tj ET
+BT /F1 9 Tf 58 647 Td (PIL resize\(\(224, 224\)\) mengubah lebar dan tinggi tepat menjadi 224 piksel. Resize langsung ke) Tj ET
+BT /F1 9 Tf 58 634 Td (kotak ini dapat mengubah rasio aspek foto; sistem tidak melakukan center-crop atau letterbox) Tj ET
+BT /F1 9 Tf 58 621 Td (pada fungsi inferensi.) Tj ET
+BT /F2 12 Tf 58 602 Td (3. Array, batch, dan normalisasi) Tj ET
+BT /F1 9 Tf 58 584 Td (keras.utils.img_to_array mengubah piksel ke array float dengan urutan dimensi NHWC: batch,) Tj ET
+BT /F1 9 Tf 58 571 Td (tinggi, lebar, kanal. Setelah menambah dimensi batch, satu foto memiliki bentuk \(1, 224, 224,) Tj ET
+BT /F1 9 Tf 58 558 Td (3\). Nilai piksel yang dikirim dari fungsi inferensi masih sekitar 0 sampai 255.) Tj ET
+BT /F1 9 Tf 58 545 Td (Layer awal model bernama normalisasi_mobilenetv2 melakukan transformasi x/127.5 - 1.0. Jadi 0) Tj ET
+BT /F1 9 Tf 58 532 Td (menjadi -1, 127.5 menjadi 0, dan 255 menjadi +1. Normalisasi ini bagian dari graph model dan) Tj ET
+BT /F1 9 Tf 58 519 Td (juga dipakai saat training; jangan menambahkan normalisasi yang sama lagi sebelum predict.) Tj ET
+BT /F1 9 Tf 58 506 Td (Pada inferensi tidak ada augmentasi. Flip horizontal dan rotasi acak hanya dipakai pada data) Tj ET
+BT /F1 9 Tf 58 493 Td (training untuk membuat model melihat variasi orientasi/posisi.) Tj ET
+BT /F2 12 Tf 58 474 Td (Apa arti tensor feature map?) Tj ET
+BT /F1 9 Tf 58 456 Td (Tensor \(H, W, C\) adalah kumpulan C peta fitur berukuran H kali W. Setiap kanal menyimpan) Tj ET
+BT /F1 9 Tf 58 443 Td (respons terhadap pola tertentu; angka di satu posisi menyatakan kuat-lemahnya fitur tersebut di) Tj ET
+BT /F1 9 Tf 58 430 Td (area gambar yang sesuai.) Tj ET
+0.65 0.68 0.70 RG
+54 38 m 541 38 l S
+0 0 0 rg
+BT /F1 8 Tf 54 25 Td (FusaShield - penjelasan teknis CNN) Tj ET
+BT /F1 8 Tf 520 25 Td (2 / 6) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 15 0 R /F2 16 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 2712 >>
+stream
+0.08 0.31 0.50 rg
+54 818 487 3 re f
+0 0 0 rg
+BT /F2 18 Tf 58 789 Td (CARA KERJA CONVOLUTION 2D) Tj ET
+BT /F1 9 Tf 58 764 Td (Kernel, bobot bersama, stride, padding, dan kanal) Tj ET
+BT /F2 12 Tf 58 743 Td (4. Kernel 3x3 bergerak pada feature map) Tj ET
+BT /F1 9 Tf 58 725 Td (Kernel 3x3 melihat jendela lokal 3 piksel tinggi kali 3 piksel lebar. Di tiap posisi, setiap) Tj ET
+BT /F1 9 Tf 58 712 Td (nilai jendela dikalikan bobot kernel yang bersesuaian, kemudian semua hasil dijumlahkan \(dan) Tj ET
+BT /F1 9 Tf 58 699 Td (bias bila dipakai\). Satu filter menghasilkan satu kanal output; banyak filter menghasilkan) Tj ET
+BT /F1 9 Tf 58 686 Td (banyak kanal.) Tj ET
+BT /F2 8 Tf 58 672 Td (Y[i,j,k] = sum\(u,v,c\) X[i*s+u-p, j*s+v-p, c] * W[u,v,c,k] + b[k]) Tj ET
+BT /F1 9 Tf 58 659 Td (Bobot filter yang sama digunakan di semua lokasi gambar \(weight sharing\). Karena itu filter) Tj ET
+BT /F1 9 Tf 58 646 Td (yang belajar mendeteksi tepi atau tekstur dapat merespons pola serupa di bagian daun yang) Tj ET
+BT /F1 9 Tf 58 633 Td (berbeda.) Tj ET
+BT /F2 12 Tf 58 614 Td (Stride bukan ukuran kernel) Tj ET
+BT /F1 9 Tf 58 596 Td (Kernel 3x3 dengan stride 1 berpindah satu posisi ke kanan, lalu satu posisi ke bawah:) Tj ET
+BT /F1 9 Tf 58 583 Td (jendela-jendela berdekatan saling tumpang tindih. Stride 2 berpindah dua posisi per langkah,) Tj ET
+BT /F1 9 Tf 58 570 Td (sehingga melompati satu posisi dan mengurangi resolusi keluaran kira-kira setengah.) Tj ET
+BT /F1 9 Tf 58 557 Td (Pada model ini Conv1 awal memakai stride 2. Depthwise convolution di block_1, block_3, block_6,) Tj ET
+BT /F1 9 Tf 58 544 Td (dan block_13 juga memakai stride 2. Depthwise convolution pada blok lain memakai stride 1. Conv) Tj ET
+BT /F1 9 Tf 58 531 Td (1x1 beroperasi pada satu posisi spasial sehingga mencampur kanal, bukan menyapu jendela 3x3.) Tj ET
+BT /F1 9 Tf 58 518 Td (Stride diterapkan pada feature map masukan layer tersebut, bukan selalu pada piksel asli.) Tj ET
+BT /F1 9 Tf 58 505 Td (Setelah downsampling bertingkat, satu langkah di feature map yang lebih dalam mewakili jarak) Tj ET
+BT /F1 9 Tf 58 492 Td (yang makin lebar pada gambar asli.) Tj ET
+BT /F2 12 Tf 58 473 Td (Padding dan ukuran keluaran) Tj ET
+BT /F1 9 Tf 58 455 Td (Padding menambahkan nilai di tepi agar kernel tetap dapat memproses area pinggir. Padding same) Tj ET
+BT /F1 9 Tf 58 442 Td (umumnya mempertahankan ukuran spasial ketika stride 1. Pada beberapa downsampling MobileNetV2,) Tj ET
+BT /F1 9 Tf 58 429 Td (model memakai ZeroPadding2D eksplisit lalu depthwise convolution valid dengan stride 2.) Tj ET
+0.65 0.68 0.70 RG
+54 38 m 541 38 l S
+0 0 0 rg
+BT /F1 8 Tf 54 25 Td (FusaShield - penjelasan teknis CNN) Tj ET
+BT /F1 8 Tf 520 25 Td (3 / 6) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 15 0 R /F2 16 0 R >> >> /Contents 10 0 R >>
+endobj
+10 0 obj
+<< /Length 2908 >>
+stream
+0.08 0.31 0.50 rg
+54 818 487 3 re f
+0 0 0 rg
+BT /F2 18 Tf 58 789 Td (BAGIAN DALAM MOBILE NET V2) Tj ET
+BT /F1 9 Tf 58 764 Td (Depthwise separable convolution dan inverted residual) Tj ET
+BT /F2 12 Tf 58 743 Td (5. Operasi dasar pada bottleneck) Tj ET
+BT /F1 9 Tf 58 725 Td (Expansion 1x1: memperluas kanal sementara, biasanya faktor 6. Contoh 24 menjadi 144 kanal.) Tj ET
+BT /F1 9 Tf 58 712 Td (Kernel 1x1 tidak melihat tetangga spasial; ia menggabungkan nilai kanal di setiap posisi.) Tj ET
+BT /F1 9 Tf 58 699 Td (Depthwise 3x3: menerapkan satu filter spasial per kanal secara terpisah. Ia belajar pola lokal,) Tj ET
+BT /F1 9 Tf 58 686 Td (misalnya tekstur atau tepi, tetapi belum mencampur informasi antarkanal.) Tj ET
+BT /F1 9 Tf 58 673 Td (Projection 1x1: mencampur kanal melalui kombinasi berbobot lalu memampatkannya ke jumlah kanal) Tj ET
+BT /F1 9 Tf 58 660 Td (output. Tahap projection bersifat linear sebelum Batch Normalization; ia tidak memakai ReLU6) Tj ET
+BT /F1 9 Tf 58 647 Td (sesudah projection.) Tj ET
+BT /F1 9 Tf 58 634 Td (Pemisahan depthwise dan pointwise mengurangi komputasi dibanding Conv2D biasa yang sekaligus) Tj ET
+BT /F1 9 Tf 58 621 Td (mengolah ruang dan mencampur semua kanal.) Tj ET
+BT /F2 12 Tf 58 602 Td (6. Batch Normalization dan ReLU6) Tj ET
+BT /F2 8 Tf 58 583 Td (BN\(x\) = gamma * \(x - mean\) / sqrt\(variance + epsilon\) + beta) Tj ET
+BT /F1 9 Tf 58 570 Td (Saat inferensi, Batch Normalization menggunakan mean dan variance yang dipelajari/disimpan dari) Tj ET
+BT /F1 9 Tf 58 557 Td (training, bukan menghitung statistik dari satu foto. ReLU6 kemudian membatasi aktivasi: max\(0,) Tj ET
+BT /F1 9 Tf 58 544 Td (min\(x, 6\)\). Banyak layer Conv2D mempunyai aktivasi linear karena BN dan ReLU6 dibuat sebagai) Tj ET
+BT /F1 9 Tf 58 531 Td (layer terpisah.) Tj ET
+BT /F2 12 Tf 58 512 Td (7. Residual / shortcut) Tj ET
+BT /F1 9 Tf 58 494 Td (Jika input dan keluaran blok memiliki tinggi, lebar, dan jumlah kanal sama serta stride 1,) Tj ET
+BT /F1 9 Tf 58 481 Td (layer Add menjumlahkan keduanya: output = input + hasil_transformasi\(input\). Shortcut) Tj ET
+BT /F1 9 Tf 58 468 Td (mempertahankan jalur informasi dan membantu aliran gradien saat training.) Tj ET
+BT /F1 9 Tf 58 455 Td (Jika stride mengubah resolusi atau projection mengubah jumlah kanal, bentuk tensor tidak cocok) Tj ET
+BT /F1 9 Tf 58 442 Td (untuk penjumlahan langsung. Blok tersebut tidak memakai Add shortcut.) Tj ET
+BT /F2 12 Tf 58 423 Td (Contoh block_2) Tj ET
+BT /F1 9 Tf 58 405 Td (Masuk 56x56x24 -> expansion 1x1 menjadi 56x56x144 -> depthwise 3x3 stride 1 tetap 56x56x144 ->) Tj ET
+BT /F1 9 Tf 58 392 Td (projection 1x1 menjadi 56x56x24 -> Add dengan input 56x56x24. Inilah contoh inverted residual) Tj ET
+BT /F1 9 Tf 58 379 Td (dengan shortcut.) Tj ET
+0.65 0.68 0.70 RG
+54 38 m 541 38 l S
+0 0 0 rg
+BT /F1 8 Tf 54 25 Td (FusaShield - penjelasan teknis CNN) Tj ET
+BT /F1 8 Tf 520 25 Td (4 / 6) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 15 0 R /F2 16 0 R >> >> /Contents 12 0 R >>
+endobj
+12 0 obj
+<< /Length 2730 >>
+stream
+0.08 0.31 0.50 rg
+54 818 487 3 re f
+0 0 0 rg
+BT /F2 18 Tf 58 789 Td (URUTAN BLOCK DAN UKURAN FITUR) Tj ET
+BT /F1 9 Tf 58 764 Td (Dimensi yang diperiksa dari file model tersimpan) Tj ET
+BT /F2 12 Tf 58 743 Td (8. Tahap backbone MobileNetV2 aktual) Tj ET
+BT /F1 9 Tf 58 725 Td (Stage yang berakhir pada dimensi berikut:) Tj ET
+0.94 0.97 0.98 rg
+52 709 490 13 re f
+0 0 0 rg
+BT /F1 8.5 Tf 58 712 Td (Stem Conv 3x3, stride 2, 32 kanal -> 112x112x32) Tj ET
+0.94 0.97 0.98 rg
+52 696 490 13 re f
+0 0 0 rg
+BT /F1 8.5 Tf 58 699 Td (expanded_conv: depthwise 3x3 + projection 1x1, faktor ekspansi 1 -> 112x112x16) Tj ET
+0.94 0.97 0.98 rg
+52 683 490 13 re f
+0 0 0 rg
+BT /F1 8.5 Tf 58 686 Td (block_1-2: output 24 kanal; block_1 downsample stride 2 -> 56x56x24) Tj ET
+0.94 0.97 0.98 rg
+52 670 490 13 re f
+0 0 0 rg
+BT /F1 8.5 Tf 58 673 Td (block_3-5: output 32 kanal; block_3 downsample stride 2 -> 28x28x32) Tj ET
+0.94 0.97 0.98 rg
+52 657 490 13 re f
+0 0 0 rg
+BT /F1 8.5 Tf 58 660 Td (block_6-12: output 64 lalu 96 kanal; block_6 downsample -> 14x14x96) Tj ET
+0.94 0.97 0.98 rg
+52 644 490 13 re f
+0 0 0 rg
+BT /F1 8.5 Tf 58 647 Td (block_13-16: output 160 lalu 320 kanal; block_13 downsample -> 7x7x320) Tj ET
+0.94 0.97 0.98 rg
+52 631 490 13 re f
+0 0 0 rg
+BT /F1 8.5 Tf 58 634 Td (Conv_1 1x1 + BN + ReLU6 -> 7x7x1280) Tj ET
+BT /F2 12 Tf 58 615 Td (Detail ekspansi dan koneksi) Tj ET
+BT /F1 9 Tf 58 597 Td (block_1: 32 -> 96 -> depthwise stride 2 -> 24; tidak ada Add. block_2: 24 -> 144 -> stride 1 ->) Tj ET
+BT /F1 9 Tf 58 584 Td (24; memakai Add.) Tj ET
+BT /F1 9 Tf 58 571 Td (block_3: 24 -> 144 -> stride 2 -> 32; tidak ada Add. block_4-5: 32 -> 192 -> stride 1 -> 32;) Tj ET
+BT /F1 9 Tf 58 558 Td (memakai Add.) Tj ET
+BT /F1 9 Tf 58 545 Td (block_6: 32 -> 192 -> stride 2 -> 64; tidak ada Add. block_7-9: 64 -> 384 -> stride 1 -> 64;) Tj ET
+BT /F1 9 Tf 58 532 Td (memakai Add.) Tj ET
+BT /F1 9 Tf 58 519 Td (block_10: 64 -> 384 -> stride 1 -> 96; tidak ada Add karena jumlah kanal berubah. block_11-12:) Tj ET
+BT /F1 9 Tf 58 506 Td (96 -> 576 -> stride 1 -> 96; memakai Add.) Tj ET
+BT /F1 9 Tf 58 493 Td (block_13: 96 -> 576 -> stride 2 -> 160; tidak ada Add. block_14-15: 160 -> 960 -> stride 1 ->) Tj ET
+BT /F1 9 Tf 58 480 Td (160; memakai Add. block_16: 160 -> 960 -> stride 1 -> 320; tidak ada Add.) Tj ET
+BT /F1 9 Tf 58 467 Td (Angka kanal pada format a -> b -> c berarti kanal masuk -> kanal setelah expansion -> kanal) Tj ET
+BT /F1 9 Tf 58 454 Td (setelah projection. Resolusi spasial tetap pada blok stride 1 dan turun setengah pada blok) Tj ET
+BT /F1 9 Tf 58 441 Td (downsampling.) Tj ET
+0.65 0.68 0.70 RG
+54 38 m 541 38 l S
+0 0 0 rg
+BT /F1 8 Tf 54 25 Td (FusaShield - penjelasan teknis CNN) Tj ET
+BT /F1 8 Tf 520 25 Td (5 / 6) Tj ET
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 15 0 R /F2 16 0 R >> >> /Contents 14 0 R >>
+endobj
+14 0 obj
+<< /Length 3261 >>
+stream
+0.08 0.31 0.50 rg
+54 818 487 3 re f
+0 0 0 rg
+BT /F2 18 Tf 58 789 Td (KEPALA KLASIFIKASI DAN OUTPUT) Tj ET
+BT /F1 9 Tf 58 764 Td (Dari 7x7x1280 ke probabilitas kelas dan skor gejala) Tj ET
+BT /F2 12 Tf 58 743 Td (9. Global Average Pooling dan Dense) Tj ET
+BT /F1 9 Tf 58 725 Td (Backbone berakhir pada 7x7x1280. GlobalAveragePooling2D merata-ratakan 49 posisi \(7x7\) secara) Tj ET
+BT /F1 9 Tf 58 712 Td (terpisah untuk masing-masing dari 1280 kanal. Hasilnya vektor panjang 1280; posisi spasial) Tj ET
+BT /F1 9 Tf 58 699 Td (diringkas, kanal fitur tetap ada.) Tj ET
+BT /F1 9 Tf 58 686 Td (Dense 128 menerapkan kombinasi berbobot dari 1280 fitur ke 128 unit, lalu aktivasi ReLU.) Tj ET
+BT /F1 9 Tf 58 673 Td (Dropout 0.3 dipakai sebagai regularisasi saat training; saat prediksi Dropout tidak membuang) Tj ET
+BT /F1 9 Tf 58 660 Td (unit.) Tj ET
+BT /F1 9 Tf 58 647 Td (Dense terakhir memiliki enam unit. Setiap unit menghasilkan logit z untuk satu kelas. Softmax) Tj ET
+BT /F1 9 Tf 58 634 Td (mengubahnya menjadi probabilitas:) Tj ET
+BT /F2 8 Tf 58 620 Td (P\(class i\) = exp\(z[i]\) / sum_j exp\(z[j]\)) Tj ET
+BT /F1 9 Tf 58 607 Td (Probabilitas keenam kelas berjumlah sekitar 1. Program mengambil argmax sebagai label, lalu) Tj ET
+BT /F1 9 Tf 58 594 Td (confidence = probabilitas terbesar x 100 persen. Confidence bukan jaminan diagnosis) Tj ET
+BT /F1 9 Tf 58 581 Td (laboratorium dan bukan skor gejala.) Tj ET
+BT /F2 12 Tf 58 562 Td (Urutan kelas output) Tj ET
+BT /F1 9 Tf 58 544 Td (Indeks output mengikuti urutan class_names.json: 0 Bacterial Spot; 1 Cercospora Leaf Spot; 2) Tj ET
+BT /F1 9 Tf 58 531 Td (Curl Virus; 3 Healthy Leaf; 4 Nutrition Deficiency; 5 White spot.) Tj ET
+BT /F2 12 Tf 58 512 Td (10. Skor gejala buatan aplikasi) Tj ET
+BT /F2 8 Tf 58 493 Td (skor = \(1 - P\(Healthy Leaf\)\) * 60 + P\(Nutrition Deficiency\) * 40) Tj ET
+BT /F1 9 Tf 58 480 Td (Skor dibatasi ke rentang 0 sampai 100. Ini rumus tambahan di luar softmax, bukan output neuron) Tj ET
+BT /F1 9 Tf 58 467 Td (tersendiri. Nilainya bersama sensor diteruskan ke fuzzy; confidence kelas maksimum tidak) Tj ET
+BT /F1 9 Tf 58 454 Td (dipakai sebagai pengganti skor tersebut.) Tj ET
+BT /F2 12 Tf 58 435 Td (Training vs inferensi dan batas interpretasi) Tj ET
+BT /F1 9 Tf 58 417 Td (Training memakai split 80/20, batch 16, maksimum 25 epoch, Adam learning rate 0.0001,) Tj ET
+BT /F1 9 Tf 58 404 Td (categorical cross-entropy, flip horizontal dan rotasi acak hingga +/-15 derajat. Backbone) Tj ET
+BT /F1 9 Tf 58 391 Td (ImageNet dibekukan; parameter trainable utamanya ada pada Dense 128 dan Dense 6.) Tj ET
+BT /F1 9 Tf 58 378 Td (Pada inferensi hanya forward pass dilakukan: bobot tidak diperbarui. Model mengklasifikasikan) Tj ET
+BT /F1 9 Tf 58 365 Td (seluruh gambar; ia tidak mengidentifikasi koordinat daun sakit atau menghasilkan heatmap. Hasil) Tj ET
+BT /F1 9 Tf 58 352 Td (CNN adalah indikasi visual untuk sistem, bukan konfirmasi patogen laboratorium.) Tj ET
+BT /F1 8 Tf 58 339 Td (Sumber: fusashield_main.py, train_pure_keras.py, class_names.json, dan konfigurasi) Tj ET
+BT /F1 8 Tf 58 328 Td (fusashield_mobilenetv2.keras.) Tj ET
+0.65 0.68 0.70 RG
+54 38 m 541 38 l S
+0 0 0 rg
+BT /F1 8 Tf 54 25 Td (FusaShield - penjelasan teknis CNN) Tj ET
+BT /F1 8 Tf 520 25 Td (6 / 6) Tj ET
+endstream
+endobj
+15 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+16 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 17
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000153 00000 n 
+0000000291 00000 n 
+0000002663 00000 n 
+0000002801 00000 n 
+0000005512 00000 n 
+0000005650 00000 n 
+0000008414 00000 n 
+0000008553 00000 n 
+0000011514 00000 n 
+0000011654 00000 n 
+0000014437 00000 n 
+0000014577 00000 n 
+0000017891 00000 n 
+0000017989 00000 n 
+trailer
+<< /Size 17 /Root 1 0 R >>
+startxref
+18092
+%%EOF

@@ -67,8 +67,8 @@ EXT_GAMBAR = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 
 # Cooldown Protection: Penguncian pompa otomatis selama 12 jam (43.200 detik)
 # setelah penyemprotan untuk mencegah kejenuhan air tanah (over-watering).
-# COOLDOWN_STANDAR_DETIK = 12 * 3600  # 12 jam (43.200 detik)
-COOLDOWN_STANDAR_DETIK = 5  # 12 jam (43.200 detik)
+# Cooldown dinonaktifkan sementara untuk menguji aktuasi pompa.
+COOLDOWN_STANDAR_DETIK = 0
 COOLDOWN_PER_TINGKAT = {
     "KRITIS":    COOLDOWN_STANDAR_DETIK,   # dosis >= 70 ml (12 jam / 43.200 detik)
     "WASPADA":   COOLDOWN_STANDAR_DETIK,   # 35 ml <= dosis < 70 ml (12 jam / 43.200 detik)
@@ -1017,7 +1017,7 @@ def jalankan_pipeline_cloud(default_hst=41):
         "dosis_ml": dosis_ml if menyalakan else 0.0,
         "dosis_rekomendasi_ml": dosis_ml,
         "durasi_pompa_detik": durasi_detik if menyalakan else 0.0,
-        "agitator_detik": 15 if menyalakan else 0,
+        "agitator_detik": 5 if menyalakan else 0,
         "status_mitigasi": status_mitigasi,
         "fase_hst": fase_hst,
         "pump_command": pump_cmd,
